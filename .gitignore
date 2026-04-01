@@ -1,0 +1,6 @@
+# NetLogo backup files
+*.nlogo~
+*.nlogox~
+
+# macOS
+.DS_Store
