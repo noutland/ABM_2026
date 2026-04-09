@@ -1,26 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
-  <code><![CDATA[breed [workers worker]
-directed-link-breed [trust-links trust-link]
+  <code><![CDATA[breed [workers worker] ; defines breed of turtles
+directed-link-breed [trust-links trust-link] ; defines one-way trust links, allows each
+                                             ; worker to hold separate trust evaluations 
+                                             ; for each of the other workers
 
 globals [
-  total-task1
-  total-task2
-  total-tasks
-  unassigned-task1
-  unassigned-task2
-  completed-task1
-  completed-task2
-  tasks-completed
-  errors-made
-  switch-delay-hours
+  total-task1 ; initial number of type 1 ("easier") tasks 
+              ; require less time and lower error rate
+  total-task2 ; initial number of type 2 ("harder") tasks 
+              ; require more time and higher error rate
+  total-tasks ; initial number of total tasks
+              ; (i.e., total-task1 + total-task2)
+  unassigned-task1 ; number of unclaimed type 1 tasks
+  unassigned-task2 ; number of unclaimed type 2 tasks
+  completed-task1 ; number of completed type 1 tasks
+                  ; only included if successful
+                  ; (i.e., no error)
+  completed-task2 ; number of completed type 2 tasks
+                  ; only included if successful
+                  ; (i.e., no error)
+  tasks-completed ; total number of completed tasks
+                  ; (i.e., completed-task1 + completed-task2)
+  errors-made ; 
+  tasks-failed ; number of tasks failed due to error + 
+               ; lack of monitoring
+  switch-delay-hours 
   conference-seats
-  begin-pct-complete
-  begin-error-rate
-  week1-pct-complete
-  week1-error-rate
-  week4-pct-complete
-  week4-error-rate
 ]
 
 workers-own [
@@ -36,6 +42,7 @@ workers-own [
   last-action
   planned-action
   last-outcome
+  being-monitored?
 ]
 
 trust-links-own [
@@ -57,7 +64,6 @@ to setup
   setup-workers
   setup-trust
   reset-ticks
-  record-beginning-snapshot
 end
 
 
@@ -72,17 +78,10 @@ to setup-globals
   set completed-task1 0
   set completed-task2 0
   set tasks-completed 0
-  set errors-made 0
+  set tasks-failed 0
 
   ;; Small placeholder delay for switching back into direct work.
   set switch-delay-hours 0.25
-
-  set begin-pct-complete 0
-  set begin-error-rate 0
-  set week1-pct-complete -1
-  set week1-error-rate -1
-  set week4-pct-complete -1
-  set week4-error-rate -1
 end
 
 
@@ -176,6 +175,7 @@ to initialize-worker
   set last-action ""
   set planned-action ""
   set last-outcome "none"
+  set being-monitored? false
 end
 
 
@@ -197,7 +197,6 @@ end
 
 to go
   if model-finished? [
-    fill-missing-snapshots
     stop
   ]
 
@@ -210,14 +209,11 @@ to go
   ask workers with [planned-action = "direct"] [ do-direct ]
 
   tick
-  capture-snapshots
 
   if model-finished? [
-    fill-missing-snapshots
     stop
   ]
 end
-
 
 to plan-action
   if not any-work-remaining? [
@@ -292,6 +288,11 @@ to do-monitor
 
   if target != nobody [
     move-to one-of conference-seats
+    
+    ask target [
+      set being-monitored? true
+    ]
+
     update-trust-from target
 
     if ([requested-help?] of target) or ([needs-review?] of target) [
@@ -396,12 +397,34 @@ to-report finish-task-attempt
 
   ifelse random-float 1 < adjusted-error-probability [
     set errors-made errors-made + 1
-    set last-outcome "error"
-    set needs-review? true
-    set requested-help? true
-    ;; The task stays assigned and must be reworked.
-    set current-task-remaining task-duration self finished-type
-    report "error"
+
+    ifelse being-monitored? [
+      ;; The worker made an error, but a monitor catches/corrects it,
+      ;; so the task still counts as completed.
+      set tasks-completed tasks-completed + 1
+      if finished-type = 1 [ set completed-task1 completed-task1 + 1 ]
+      if finished-type = 2 [ set completed-task2 completed-task2 + 1 ]
+
+      set current-task-type 0
+      set current-task-remaining 0
+      set last-outcome "rescued"
+      set needs-review? false
+      set requested-help? false
+
+      report "rescued"
+    ]
+    [
+      ;; The worker made an error and no monitor was present,
+      ;; so the task ends in failure and leaves the system.
+      set tasks-failed tasks-failed + 1
+      set current-task-type 0
+      set current-task-remaining 0
+      set last-outcome "error"
+      set needs-review? false
+      set requested-help? false
+
+      report "failed"
+    ]
   ]
   [
     set tasks-completed tasks-completed + 1
@@ -413,10 +436,10 @@ to-report finish-task-attempt
     set last-outcome "success"
     set needs-review? false
     set requested-help? false
+
     report "success"
   ]
 end
-
 
 ;; =========================
 ;; TASK RULES
@@ -456,38 +479,6 @@ end
 ;; SNAPSHOTS / REPORTERS
 ;; =========================
 
-to record-beginning-snapshot
-  set begin-pct-complete percent-tasks-complete
-  set begin-error-rate overall-error-rate
-end
-
-
-to capture-snapshots
-  if (ticks = 56) and (week1-pct-complete < 0) [
-    set week1-pct-complete percent-tasks-complete
-    set week1-error-rate overall-error-rate
-  ]
-
-  if (ticks = 224) and (week4-pct-complete < 0) [
-    set week4-pct-complete percent-tasks-complete
-    set week4-error-rate overall-error-rate
-  ]
-end
-
-
-to fill-missing-snapshots
-  if week1-pct-complete < 0 [
-    set week1-pct-complete percent-tasks-complete
-    set week1-error-rate overall-error-rate
-  ]
-
-  if week4-pct-complete < 0 [
-    set week4-pct-complete percent-tasks-complete
-    set week4-error-rate overall-error-rate
-  ]
-end
-
-
 to-report percent-tasks-complete
   if total-tasks = 0 [ report 0 ]
   report 100 * tasks-completed / total-tasks
@@ -521,12 +512,12 @@ end
 
 
 to-report any-work-remaining?
-  report tasks-completed < total-tasks
+  report (tasks-completed + tasks-failed) < total-tasks
 end
 
 
 to-report model-finished?
-  report (ticks >= 224) or (tasks-completed >= total-tasks)
+  report (ticks >= 224) or ((tasks-completed + tasks-failed) >= total-tasks)
 end
 ]]></code>
   <widgets>
