@@ -29,6 +29,7 @@ globals [
   conference-seats
 ]
 ;hey its javon 
+; hey whats up
 workers-own [
   agent-name
   role
