@@ -28,7 +28,7 @@ globals [
   switch-delay-hours 
   conference-seats
 ]
-
+;hey its javon 
 workers-own [
   agent-name
   role
