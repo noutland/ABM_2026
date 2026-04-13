@@ -22,34 +22,47 @@ globals [
                   ; (i.e., no error)
   tasks-completed ; total number of completed tasks
                   ; (i.e., completed-task1 + completed-task2)
-  errors-made ; 
+  errors-made ; count of tasks agents made errors on
+              ; includes those corrected due to monitoring
   tasks-failed ; number of tasks failed due to error + 
                ; lack of monitoring
-  switch-delay-hours 
-  conference-seats
-]
-;hey its javon 
-; hey whats up
-workers-own [
-  agent-name
-  role
-  home-patch
-  guest-patch
-  current-task-type
-  current-task-remaining
-  help-buffer
-  requested-help?
-  needs-review?
-  last-action
-  planned-action
-  last-outcome
-  being-monitored?
+  switch-delay-hours ; penalty (in hours) from switching
+                     ; back to direct work after monitoring
+  conference-seats ; seats around the center conference table 
 ]
 
-trust-links-own [
-  trust
-  competence-belief
-  team-belief
+workers-own [ ; each turtle gets each of the following
+  agent-name ; text label identifying each agent
+  role ; worker type (i.e., human or ai)
+  home-patch ; worker's desk (where direct work is completed)
+  guest-patch ; extra seat at each desk, where agents go to help 
+  current-task-type ; "0" (no task), 
+                    ; "1" (task type 1), or 
+                    ; "2" (task type 2)
+  current-task-remaining ; time (hours) needed to complete current task
+  help-buffer ; reduces rate of error during collaboration or monitoring
+  requested-help? ; "true" (worker is signaling they want help)
+                  ; "false" (worker is not signaling they want help)
+  last-action ; stores last action of agent
+  planned-action ; action to be made during current tick 
+  last-outcome ; stores workers most recent outcome 
+  being-monitored? ; "true" (agent is being monitored)
+                   ; "false" (agent is not being monitored)
+]
+
+trust-links-own [ ; separate links for each agent 
+                  ; one direction, allows for agents 
+                  ; to have unique perceptions of each 
+                  ; other agent, which are distinct 
+                  ; from how they are perceived
+  trust ; source agent's trust in target agent
+        ; combines competence and team beliefs 
+  competence-belief ; competence belief, whether
+                    ; source agent thinks target
+                    ; agent is capable and accurate
+  team-belief ; team-oriented belief, whether
+              ; source agent thinks target
+              ; agent is supporting the team
 ]
 
 
@@ -57,11 +70,11 @@ trust-links-own [
 ;; SETUP
 ;; =========================
 
-to setup
-  clear-all
-  resize-world -16 16 -12 12
-  setup-globals
-  setup-space
+to setup ; model initialization 
+  clear-all ; reset everything
+  resize-world -16 16 -12 12 ; dimensions of world
+  setup-globals ; setup global variables
+  setup-space ; setup 
   setup-workers
   setup-trust
   reset-ticks
@@ -79,9 +92,9 @@ to setup-globals
   set completed-task1 0
   set completed-task2 0
   set tasks-completed 0
+  set errors-made 0
   set tasks-failed 0
 
-  ;; Small placeholder delay for switching back into direct work.
   set switch-delay-hours 0.25
 end
 
@@ -172,7 +185,6 @@ to initialize-worker
   set current-task-remaining 0
   set help-buffer 0
   set requested-help? false
-  set needs-review? false
   set last-action ""
   set planned-action ""
   set last-outcome "none"
@@ -246,12 +258,12 @@ end
 
 
 to-report can-ask?
-  report (current-task-type != 0) or needs-review?
+  report current-task-type != 0
 end
 
 
 to-report can-help?
-  report any? other workers with [requested-help? or needs-review?]
+  report any? other workers with [requested-help?]
 end
 
 
@@ -263,7 +275,7 @@ end
 
 
 to do-help
-  let candidates other workers with [requested-help? or needs-review?]
+  let candidates other workers with [requested-help?]
 
   ifelse any? candidates [
     let target one-of candidates
@@ -273,7 +285,6 @@ to do-help
       ;; Simple placeholder accuracy boost from collaboration.
       set help-buffer min list 0.10 (help-buffer + 0.05)
       set requested-help? false
-      set needs-review? false
     ]
 
     set last-action "help"
@@ -296,13 +307,10 @@ to do-monitor
 
     update-trust-from target
 
-    if ([requested-help?] of target) or ([needs-review?] of target) [
+    if [requested-help?] of target [
       ask target [
-        ;; Monitoring does not create immediate progress,
-        ;; but it can slightly improve the next completion attempt.
         set help-buffer min list 0.10 (help-buffer + 0.03)
         set requested-help? false
-        set needs-review? false
       ]
     ]
   ]
@@ -397,10 +405,11 @@ to-report finish-task-attempt
   set help-buffer 0
 
   ifelse random-float 1 < adjusted-error-probability [
+    ;; An error occurred on this task attempt.
     set errors-made errors-made + 1
 
     ifelse being-monitored? [
-      ;; The worker made an error, but a monitor catches/corrects it,
+      ;; The error is caught/corrected by a monitor,
       ;; so the task still counts as completed.
       set tasks-completed tasks-completed + 1
       if finished-type = 1 [ set completed-task1 completed-task1 + 1 ]
@@ -409,25 +418,24 @@ to-report finish-task-attempt
       set current-task-type 0
       set current-task-remaining 0
       set last-outcome "rescued"
-      set needs-review? false
       set requested-help? false
 
       report "rescued"
     ]
     [
-      ;; The worker made an error and no monitor was present,
-      ;; so the task ends in failure and leaves the system.
+      ;; The error is not corrected, so the task fails and leaves the system.
       set tasks-failed tasks-failed + 1
+
       set current-task-type 0
       set current-task-remaining 0
       set last-outcome "error"
-      set needs-review? false
       set requested-help? false
 
       report "failed"
     ]
   ]
   [
+    ;; No error occurred, so the task completes normally.
     set tasks-completed tasks-completed + 1
     if finished-type = 1 [ set completed-task1 completed-task1 + 1 ]
     if finished-type = 2 [ set completed-task2 completed-task2 + 1 ]
@@ -435,7 +443,6 @@ to-report finish-task-attempt
     set current-task-type 0
     set current-task-remaining 0
     set last-outcome "success"
-    set needs-review? false
     set requested-help? false
 
     report "success"
@@ -486,11 +493,19 @@ to-report percent-tasks-complete
 end
 
 
-to-report overall-error-rate
-  if (tasks-completed + errors-made) = 0 [ report 0 ]
-  report 100 * errors-made / (tasks-completed + errors-made)
+to-report initial-error-rate
+  if (tasks-completed + tasks-failed) = 0 [ report 0 ]
+  report 100 * errors-made / (tasks-completed + tasks-failed)
 end
 
+to-report task-failure-rate
+  if (tasks-completed + tasks-failed) = 0 [ report 0 ]
+  report 100 * tasks-failed / (tasks-completed + tasks-failed)
+end
+
+to-report tasks-rescued
+  report errors-made - tasks-failed
+end
 
 to-report average-trust
   ifelse any? trust-links [
@@ -519,8 +534,7 @@ end
 
 to-report model-finished?
   report (ticks >= 224) or ((tasks-completed + tasks-failed) >= total-tasks)
-end
-]]></code>
+end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="25" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
