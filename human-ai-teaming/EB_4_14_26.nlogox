@@ -1,113 +1,121 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
-  <code><![CDATA[breed [workers worker]
-directed-link-breed [trust-links trust-link]
+  <code><![CDATA[breed [workers worker] ; defines breed of turtles
+directed-link-breed [trust-links trust-link] ; one-way relationships
+                                             ; from "lens" agent
+                                             ; to "target" agent"
 
-globals [
-  ;; --- legacy globals kept for easier interface compatibility ---
-  total-task1
-  total-task2
-  total-tasks
-  unassigned-task1
-  unassigned-task2
-  completed-task1
-  completed-task2
-  tasks-completed
-  errors-made
-  tasks-failed
-  switch-delay-hours
-  conference-seats
+globals [ ; model-level variables 
+  total-tasks ; count of tasks available at the beginning
+  tasks-completed ; count of tasks completed 
+                  ; includes corrected errors
+  errors-made ; count of tasks that resulted in errors
+              ; included corrected errors
+  tasks-failed ; count of tasks that ended in failure
+               ; when errors are not corrected
+  unassigned-tasks ; count of tasks not yet claimed
+  self-caught-errors ; count of errors caught before failure
+  task-workload ; progress required to complete one task 
+  help-speed-factor ; helping speeds things up
+  help-quality-factor ; helping reduces error rate
+  max-help-quality-bonus ; cap on benefits of 
+                         ; help-speed-factor and
+                         ; help-quality-factor
+  status-tolerance ; creates ranges for what counts as
+                   ; ahead, on-track, and behind
+  trust-learning-rate ; sensitivity parameter for trust updating
+                      ; larger = more responsive to new info
+                      ; smaller = more stable
+  human-ai-negative-cog-multiplier ; adjustment to how humans
+                                   ; differentially update ai trust
+                                   ; failures weighted more in
+                                   ; negative cognitive trust updating
+  human-ai-positive-affective-multiplier ; adjustment to how humans
+                                         ; below 1 = harder for humans
+                                         ; to increase affective trust 
+                                         ; in ai
+] ; end model-level variables
 
-  ;; --- new model globals ---
-  unassigned-tasks
-  self-caught-errors
-  max-ticks
-  task-workload
-  help-speed-factor
-  help-quality-factor
-  max-help-quality-bonus
-  status-tolerance
-  trust-learning-rate
-  human-ai-negative-cog-multiplier
-  human-ai-positive-affective-multiplier
-]
+workers-own [ ; agent-level variables
+  agent-name ; text label identifying each agent
+  role ; worker type (i.e., human or ai)
+  home-patch ; agent's workspace (where direct work is completed)
+  guest-patch ; extra seat at each workspace for helping agents
+  base-ability ; stable competence level, assigned at setup
+  conscientiousness ; trait level conscientiousness
+  agreeableness ; trait level agreeableness
+  efficiency ; speed of task completion
+  task-ability ; task-specific competence
+  has-task? ; "true" = task in progress
+            ; "false" = no task in progress
+  current-progress ; progress on current task
+  current-task-age ; pace metric
+                   ; how long current task has been in-progress
+  current-restarts ; count of times task has been restarted 
+                   ; due to self-caught errors
+  current-help-quality-bonus ; current accuracy bonus 
+                             ; due to help received
+  current-status ; "ahead", "on-track", "behind"
+                 ; may also be "idle" or "done"
+  asked-help-on-current-task? ; whether agent requested help on
+                              ; current task
+  planned-action ; action for next move
+                 ; "keep-working", "ask-help", or "offer-help"
+  proposed-target ; agent worker proposes to help (pre-matching)
+                  ; "i'd like to help this agent"
+  matched-helper ; agent assigned to help this worker (post-matching) 
+                 ; "this agent is helping me"
+                 ; "nobody" if not receiving help
+  matched-target ; agent worker is helping (post-matching)
+                 ; "i am helping this person"
+                 ; "nobody" if not helping 
+  requested-help-this-tick? ; "true" =  requested help this tick
+                            ; "false" =  didn't request help this tick
+  received-help-this-tick? ; "true" = got help this tick
+                           ; "false" = didn't get help this tick
+  helped-someone-this-tick? ; "true" = helped someone this tick
+                            ; "false" = didn't help someone this tick
+  self-caught-error-this-tick? ; "true" = caught self-made error
+                               ; "false" = didn't make error
+                               ; or didn't self-catch error
+  task-failed-this-tick? ; "true" = didn't self-catch error
+                         ; "false" = didn't make error
+                         ; or self-caught error
+  task-succeeded-this-tick? ; whether a task was completed this tick
+  last-action ; most recent action
+  last-outcome ; most recent outcome
+  tasks-started ; count of total tasks this agent started
+  help-requests-made ; count of total help requests this agent has made
+  help-opportunities ; count of times helping was possible 
+  help-given ; count of times this agent provided help
+] ; end of agent-level variables
 
-workers-own [
-  ;; identity / space
-  agent-name
-  role
-  home-patch
-  guest-patch
-
-  ;; legacy worker vars kept for easier compatibility
-  current-task-type
-  current-task-remaining
-  help-buffer
-  requested-help?
-  being-monitored?
-
-  ;; stable traits
-  base-ability
-  conscientiousness
-  agreeableness
-  efficiency
-
-  ;; current task state
-  task-ability
-  has-task?
-  current-progress
-  current-task-age
-  current-restarts
-  current-help-quality-bonus
-  current-status
-  asked-help-on-current-task?
-
-  ;; current coordination state
-  planned-action
-  proposed-target
-  matched-helper
-  matched-target
-
-  ;; tick-level flags
-  requested-help-this-tick?
-  received-help-this-tick?
-  helped-someone-this-tick?
-  self-caught-error-this-tick?
-  task-failed-this-tick?
-  task-succeeded-this-tick?
-
-  ;; summary memory
-  last-action
-  last-outcome
-
-  ;; cumulative behavioral counts
-  tasks-started
-  help-requests-made
-  help-opportunities
-  help-given
-]
-
-trust-links-own [
-  trust
-  competence-belief
-  team-belief
-]
+trust-links-own [ ; properties of each one-way relationship 
+                  ; from "lens" agent to "target" agent
+  trust ; metric of overall trust
+        ; combines cognitive (competence-belief) and 
+        ; affective (team-belief)
+  competence-belief ; cognitive trust component
+                    ; does lens agent see target agent
+                    ; as capable and reliable?
+  team-belief ; affective trust component
+              ; does lens agent see target agent
+              ; as supportive and team-oriented?
+] ; end of properties of each one-way relationship
 
 ; =========================================================
 ; SETUP
 ; =========================================================
 
-to setup
-  clear-all
-  resize-world -16 16 -12 12
-  setup-globals
-  setup-space
-  setup-workers
-  setup-trust
-  sync-legacy-globals
-  sync-legacy-worker-vars
-  reset-ticks
-end
+to setup ; begin model initialization process
+  clear-all ; reset everything 
+  resize-world -16 16 -12 12 ; set view dimensions
+  setup-globals ; initialization (process below)
+  setup-space ; "
+  setup-workers ; "
+  setup-trust ; "
+  reset-ticks ; set ticks to 0
+end ; end model initialization process
 
 to setup-globals
   ;; one task pool
@@ -119,7 +127,6 @@ to setup-globals
   set self-caught-errors 0
 
   ;; model timing / workload
-  set max-ticks 600
   set task-workload 8
 
   ;; help mechanics
@@ -132,9 +139,6 @@ to setup-globals
   set trust-learning-rate 0.25
   set human-ai-negative-cog-multiplier 1.5
   set human-ai-positive-affective-multiplier 0.75
-
-  ;; no switching delay in revised model
-  set switch-delay-hours 0
 end
 
 to setup-space
@@ -146,17 +150,6 @@ to setup-space
 
   ask patches with [abs pxcor <= 2 and abs pycor <= 1] [
     set pcolor brown + 1
-  ]
-
-  set conference-seats patches with [
-    (pxcor = -3 and pycor = 0) or
-    (pxcor = 3 and pycor = 0) or
-    (pxcor = 0 and pycor = 2) or
-    (pxcor = 0 and pycor = -2)
-  ]
-
-  ask conference-seats [
-    set pcolor gray + 1
   ]
 
   ;; H1 workspace
@@ -267,12 +260,6 @@ to initialize-worker
   set help-opportunities 0
   set help-given 0
 
-  ;; legacy compatibility vars
-  set current-task-type 0
-  set current-task-remaining 0
-  set help-buffer 0
-  set requested-help? false
-  set being-monitored? false
 end
 
 to setup-trust
@@ -330,10 +317,6 @@ to go
   ask workers [ update-status ]
   update-all-trust
   ask workers [ choose-next-action ]
-
-  sync-legacy-globals
-  sync-legacy-worker-vars
-
   tick
   if model-finished? [ stop ]
 end
@@ -585,24 +568,20 @@ to choose-next-action
   if not has-task? [
     if unassigned-tasks > 0 [
       set planned-action "keep-working"
-      set requested-help? false
       stop
     ]
 
     if any? other workers with [current-status = "behind"] [
       set planned-action "offer-help"
-      set requested-help? false
       stop
     ]
 
     if (any? other workers with [current-status = "on-track"]) and discretionary-help? [
       set planned-action "offer-help"
-      set requested-help? false
       stop
     ]
 
     set planned-action "keep-working"
-    set requested-help? false
     stop
   ]
 
@@ -614,12 +593,10 @@ to choose-next-action
   if current-status = "behind" [
     if any? other workers with [member? current-status (list "on-track" "ahead")] [
       set planned-action "ask-help"
-      set requested-help? true
       stop
     ]
 
     set planned-action "keep-working"
-    set requested-help? false
     stop
   ]
 
@@ -627,7 +604,6 @@ to choose-next-action
   if current-status = "on-track" [
     if (any? behind-teammates) and discretionary-help? [
       set planned-action "offer-help"
-      set requested-help? false
       stop
     ]
 
@@ -635,13 +611,11 @@ to choose-next-action
       let trusted-helper best-trusted-helper ahead-teammates
       if (trusted-helper != nobody) and (task-ability < competence-belief-from self trusted-helper) [
         set planned-action "ask-help"
-        set requested-help? true
         stop
       ]
     ]
 
     set planned-action "keep-working"
-    set requested-help? false
     stop
   ]
 
@@ -649,23 +623,19 @@ to choose-next-action
   if current-status = "ahead" [
     if any? behind-teammates [
       set planned-action "offer-help"
-      set requested-help? false
       stop
     ]
 
     if (any? ontrack-teammates) and discretionary-help? [
       set planned-action "offer-help"
-      set requested-help? false
       stop
     ]
 
     set planned-action "keep-working"
-    set requested-help? false
     stop
   ]
 
   set planned-action "keep-working"
-  set requested-help? false
 end
 
 to-report has-help-opportunity?
@@ -867,31 +837,6 @@ end
 ; COMPATIBILITY HELPERS
 ; =========================================================
 
-to sync-legacy-globals
-  set total-task1 total-tasks
-  set total-task2 0
-  set unassigned-task1 unassigned-tasks
-  set unassigned-task2 0
-  set completed-task1 tasks-completed
-  set completed-task2 0
-end
-
-to sync-legacy-worker-vars
-  ask workers [
-    ifelse has-task? [
-      set current-task-type 1
-      set current-task-remaining max list 0 (task-workload - current-progress)
-    ] [
-      set current-task-type 0
-      set current-task-remaining 0
-    ]
-
-    set help-buffer current-help-quality-bonus
-    set requested-help? (planned-action = "ask-help")
-    set being-monitored? false
-  ]
-end
-
 to-report clamp [x low high]
   report max list low (min list high x)
 end
@@ -948,16 +893,6 @@ end
 
 to-report tasks-remaining
   report unassigned-tasks + count workers with [has-task?]
-end
-
-to-report task1-remaining
-  ;; compatibility shim for old interface
-  report tasks-remaining
-end
-
-to-report task2-remaining
-  ;; compatibility shim for old interface
-  report 0
 end
 
 to-report any-work-remaining?
