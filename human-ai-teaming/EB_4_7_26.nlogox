@@ -1,209 +1,204 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
   <code><![CDATA[breed [workers worker] ; defines breed of turtles
-directed-link-breed [trust-links trust-link] ; defines one-way trust links, allows each
-                                             ; worker to hold separate trust evaluations 
-                                             ; for each of the other workers
+directed-link-breed [trust-links trust-link] ; one-way relationships
+                                             ; from "lens" agent
+                                             ; to "target" agent
 
-globals [
-  total-task1 ; initial number of type 1 ("easier") tasks 
+globals [ ; model-level variables
+  total-task1 ; initial count of type 1 ("easier") tasks 
               ; require less time and lower error rate
-  total-task2 ; initial number of type 2 ("harder") tasks 
+  total-task2 ; initial count of type 2 ("harder") tasks 
               ; require more time and higher error rate
-  total-tasks ; initial number of total tasks
+  total-tasks ; initial count of total tasks
               ; (i.e., total-task1 + total-task2)
-  unassigned-task1 ; number of unclaimed type 1 tasks
-  unassigned-task2 ; number of unclaimed type 2 tasks
-  completed-task1 ; number of completed type 1 tasks
-                  ; only included if successful
-                  ; (i.e., no error)
-  completed-task2 ; number of completed type 2 tasks
-                  ; only included if successful
-                  ; (i.e., no error)
-  tasks-completed ; total number of completed tasks
+  unassigned-task1 ; count of remaining unclaimed type 1 tasks
+  unassigned-task2 ; count of remaining unclaimed type 2 tasks
+  completed-task1 ; count of completed type 1 tasks
+                  ; includes those corrected due to monitoring
+  completed-task2 ; count of completed type 2 tasks
+                  ; includes those corrected due to monitoring
+  tasks-completed ; total count of completed tasks
                   ; (i.e., completed-task1 + completed-task2)
   errors-made ; count of tasks agents made errors on
               ; includes those corrected due to monitoring
-  tasks-failed ; number of tasks failed due to error + 
+  tasks-failed ; count of tasks failed due to error + 
                ; lack of monitoring
-  switch-delay-hours ; penalty (in hours) from switching
+  switch-delay-hours ; penalty (hours) from switching
                      ; back to direct work after monitoring
   conference-seats ; seats around the center conference table 
-]
+] ; end of sub-sequence
 
-workers-own [ ; each turtle gets each of the following
+workers-own [ ; turtle-level variables
   agent-name ; text label identifying each agent
   role ; worker type (i.e., human or ai)
   home-patch ; worker's desk (where direct work is completed)
-  guest-patch ; extra seat at each desk, where agents go to help 
+  guest-patch ; extra seat at each desk for helping agents 
   current-task-type ; "0" (no task), 
                     ; "1" (task type 1), or 
                     ; "2" (task type 2)
-  current-task-remaining ; time (hours) needed to complete current task
-  help-buffer ; reduces rate of error during collaboration or monitoring
-  requested-help? ; "true" (worker is signaling they want help)
-                  ; "false" (worker is not signaling they want help)
-  last-action ; stores last action of agent
-  planned-action ; action to be made during current tick 
+  current-task-remaining ; time (hours) to complete current task
+  help-buffer ; reduces rate of error during collaboration
+  requested-help? ; "true" (worker is asking for help)
+                  ; "false" (worker is *not* asking for help)
+  last-action ; stores workers last action
+  planned-action ; workers next action 
   last-outcome ; stores workers most recent outcome 
   being-monitored? ; "true" (agent is being monitored)
-                   ; "false" (agent is not being monitored)
-]
+                   ; "false" (agent is *not* being monitored)
+] ; end of sub-sequence
 
-trust-links-own [ ; separate links for each agent 
-                  ; one direction, allows for agents 
-                  ; to have unique perceptions of each 
-                  ; other agent, which are distinct 
-                  ; from how they are perceived
-  trust ; source agent's trust in target agent
-        ; combines competence and team beliefs 
-  competence-belief ; competence belief, whether
-                    ; source agent thinks target
-                    ; agent is capable and accurate
-  team-belief ; team-oriented belief, whether
-              ; source agent thinks target
-              ; agent is supporting the team
-]
+trust-links-own [ ; one-way relationships between each agent 
+                  ; how "lens" agent sees "target" agent
+  trust ; lens agent's overall trust in target agent 
+        ; combines competence and team-oriented beliefs 
+  competence-belief ; does lens agent see target agent 
+                    ; as capable and reliable?
+  team-belief ; team-oriented belief, does
+              ; lens agent see target agent 
+              ; as supporting the team?
+] ; end of sub-sequence
 
+; [#######################  [  SETUP  ]  ########################]
+; [#######################    \(^-^)/    ########################]
+; [#######################      | |      ########################]
+; [#######################      / \      ########################]
 
-;; =========================
-;; SETUP
-;; =========================
-
-to setup ; model initialization 
+to setup ; begin model initialization sequence
   clear-all ; reset everything
-  resize-world -16 16 -12 12 ; dimensions of world
-  setup-globals ; setup global variables
-  setup-space ; setup 
-  setup-workers
-  setup-trust
-  reset-ticks
-end
+  resize-world -16 16 -12 12 ; set view dimensions
+  setup-globals ; initialization (process below)
+  setup-space ; "
+  setup-workers ; "
+  setup-trust ; "
+  reset-ticks ; set ticks to 0
+end ; end model initialization sequence
+
+to setup-globals ; begin global variable initialization sequence
+  set total-task1 75 ; initial count of type 1 tasks 
+  set total-task2 75 ; initial count of type 2 tasks
+  set total-tasks total-task1 + total-task2 ; calculation
+                                            ; of total tasks
+  set unassigned-task1 total-task1 ; intially unassigned = total
+  set unassigned-task2 total-task2 ; "
+  set completed-task1 0 ; initial = 0
+  set completed-task2 0 ; "
+  set tasks-completed 0 ; "
+  set errors-made 0 ; "
+  set tasks-failed 0 ; "
+  set switch-delay-hours 0.10 ; time (hours) penalty in direct
+                              ; work after monitoring
+end ; end of global variable initialization sequence
+
+to setup-space ; begin view initialization sequence
+  ask patches [ ; patch visuals
+    set pcolor gray + 4 ; "
+    set plabel "" ; "
+    set plabel-color black ; "
+  ] ; end of sub-sequence
+  
+  ask patches with [abs pxcor <= 2 and abs pycor <= 1] [ ; "
+    set pcolor brown + 1 ; "
+  ] ; end of sub-sequence
+  
+  set conference-seats patches with [ ; "
+    (pxcor = -3 and pycor = 0) or ; "
+    (pxcor = 3 and pycor = 0) or ; "
+    (pxcor = 0 and pycor = 2) or ; "
+    (pxcor = 0 and pycor = -2) ; "
+  ] ; end of sub-sequence
+  
+  ask conference-seats [ ; "
+    set pcolor gray + 1 ; "
+  ] ; end of sub-sequence
+  
+  ask patch -11 8 ; create human 1's workspace
+  [ set pcolor brown - 1 set plabel "H1" ] ; "
+  ask patch -10 8 ; create guest space @ human 1's workspace
+  [ set pcolor brown + 1 ] ; "
+  ask patch -9 8  [ set pcolor gray + 2 set plabel "guest" ] ; "
+ 
+  ask patch -11 -8 ; create human 2 workspace
+  [ set pcolor brown - 1 set plabel "H2" ] ; "
+  ask patch -10 -8 ; create guest space @ human 2's workspace
+  [ set pcolor brown + 1 ] ; "
+  ask patch -9 -8  [ set pcolor gray + 2 set plabel "guest" ] ; "
+ 
+  ask patch 10 0 ; create AI workspace
+  [ set pcolor brown - 1 ] ; "
+  ask patch 11 0 ; create guest space @ AI's workspace
+  [ set pcolor brown + 1 set plabel "AI" ] ; "
+  ask patch 9 0  [ set pcolor gray + 2 set plabel "guest" ] ; "
+end ; end view initialization sequence
+
+to setup-workers ; begin worker initialization sequence
+  create-workers 1 [ ; human 1
+                     ; create, label, and assign workstation 
+    initialize-worker ; "
+    set agent-name "H1" ; "
+    set role "human" ; "
+    set color green ; "
+    set shape "circle" ; "
+    set size 1.5 ; "
+    set home-patch patch -11 8 ; "
+    set guest-patch patch -9 8 ; "
+  ]  ; end of sub-sequence
+  
+  create-workers 1 [ ; human 2
+                     ; create, label, and assign workstation
+    initialize-worker ; "
+    set agent-name "H2" ; "
+    set role "human" ; "
+    set color green ; "
+    set shape "circle" ; "
+    set size 1.5 ; "
+    set home-patch patch -11 -8 ; "
+    set guest-patch patch -9 -8 ; "
+  ] ; end of sub-sequence
+
+  create-workers 1 [ ; AI
+                     ; create, label, and assign workstation
+    initialize-worker ; "
+    set agent-name "AI" ; "
+    set role "ai" ; "
+    set color red ; "
+    set shape "circle" ; "
+    set size 1.5 ; "
+    set home-patch patch 11 0 ; "
+    set guest-patch patch 9 0 ; "
+  ] ; end of sub-sequence
+
+  ask workers [ ; see below
+    move-to home-patch ; move agents to their respective workstations
+    set label agent-name ; set name labels on agents
+    set label-color black ; set color of agent's name labels
+  ] ; end of sub-sequence
+end ; end worker initialization sequence
+
+to initialize-worker ; begin worker initialization sequence
+  set current-task-type 0 ; set initial values to 0, n/a, or false
+  set current-task-remaining 0 ; "
+  set help-buffer 0 ; "
+  set requested-help? false ; "
+  set last-action "" ; "
+  set planned-action "" ; "
+  set last-outcome "none" ; "
+  set being-monitored? false ; "
+end  ; begin worker initialization sequence
+
+to setup-trust ; begin trust initialization sequence
+  ask workers [ ; see below
+    create-trust-links-to other workers [ ; create links
+      set trust 0.5 ; set initial trust levels
+      set competence-belief 0.5 ; "
+      set team-belief 0.5 ; "
+      hide-link ; " ?
+    ] ; end of sub-sequence
+  ] ; end of sub-sequence
+end ; begin trust initialization sequence
 
 
-to setup-globals
-  set total-task1 75
-  set total-task2 75
-  set total-tasks total-task1 + total-task2
-
-  set unassigned-task1 total-task1
-  set unassigned-task2 total-task2
-
-  set completed-task1 0
-  set completed-task2 0
-  set tasks-completed 0
-  set errors-made 0
-  set tasks-failed 0
-
-  set switch-delay-hours 0.25
-end
-
-
-to setup-space
-  ask patches [
-    set pcolor gray + 4
-    set plabel ""
-    set plabel-color black
-  ]
-
-  ;; Conference table in the middle + four nearby meeting spots.
-  ask patches with [abs pxcor <= 2 and abs pycor <= 1] [
-    set pcolor brown + 1
-  ]
-
-  set conference-seats patches with [
-    (pxcor = -3 and pycor = 0) or
-    (pxcor = 3 and pycor = 0) or
-    (pxcor = 0 and pycor = 2) or
-    (pxcor = 0 and pycor = -2)
-  ]
-  ask conference-seats [
-    set pcolor gray + 1
-  ]
-
-  ;; Human 1 workspace.
-  ask patch -11 8 [ set pcolor brown - 1 set plabel "H1" ]
-  ask patch -10 8 [ set pcolor brown + 1 ]
-  ask patch -9 8  [ set pcolor gray + 2 set plabel "guest" ]
-
-  ;; Human 2 workspace.
-  ask patch -11 -8 [ set pcolor brown - 1 set plabel "H2" ]
-  ask patch -10 -8 [ set pcolor brown + 1 ]
-  ask patch -9 -8  [ set pcolor gray + 2 set plabel "guest" ]
-
-  ;; AI workspace.
-  ask patch 10 0 [ set pcolor brown - 1 ]
-  ask patch 11 0 [ set pcolor brown + 1 set plabel "AI" ]
-  ask patch 9 0  [ set pcolor gray + 2 set plabel "guest" ]
-end
-
-
-to setup-workers
-  create-workers 1 [
-    initialize-worker
-    set agent-name "H1"
-    set role "human"
-    set color green
-    set shape "circle"
-    set size 1.5
-    set home-patch patch -11 8
-    set guest-patch patch -9 8
-  ]
-
-  create-workers 1 [
-    initialize-worker
-    set agent-name "H2"
-    set role "human"
-    set color green
-    set shape "circle"
-    set size 1.5
-    set home-patch patch -11 -8
-    set guest-patch patch -9 -8
-  ]
-
-  create-workers 1 [
-    initialize-worker
-    set agent-name "AI"
-    set role "ai"
-    set color red
-    set shape "circle"
-    set size 1.5
-    set home-patch patch 11 0
-    set guest-patch patch 9 0
-  ]
-
-  ask workers [
-    move-to home-patch
-    set label agent-name
-    set label-color black
-  ]
-end
-
-
-to initialize-worker
-  set current-task-type 0
-  set current-task-remaining 0
-  set help-buffer 0
-  set requested-help? false
-  set last-action ""
-  set planned-action ""
-  set last-outcome "none"
-  set being-monitored? false
-end
-
-
-to setup-trust
-  ask workers [
-    create-trust-links-to other workers [
-      set trust 0.5
-      set competence-belief 0.5
-      set team-belief 0.5
-      hide-link
-    ]
-  ]
-end
-
-
+;;; EB stopping point 4/13/26
 ;; =========================
 ;; MAIN LOOP
 ;; =========================
@@ -305,7 +300,7 @@ to do-monitor
       set being-monitored? true
     ]
 
-    update-trust-from target
+    update-trust-in target
 
     if [requested-help?] of target [
       ask target [
@@ -319,7 +314,7 @@ to do-monitor
 end
 
 
-to update-trust-from [target]
+to update-trust-in [target]
   let trust-edge out-trust-link-to target
   if trust-edge = nobody [ stop ]
 
@@ -544,7 +539,7 @@ end]]></code>
     <monitor x="25" precision="2" y="330" height="60" fontSize="11" width="235" display="to do: task 1">task1-remaining</monitor>
     <monitor x="25" precision="2" y="410" height="60" fontSize="11" width="235" display="to do: task 2">task2-remaining</monitor>
     <monitor x="25" precision="2" y="250" height="60" fontSize="11" width="235" display="mean trust">average-trust</monitor>
-    <monitor x="25" precision="2" y="170" height="60" units="%" fontSize="11" width="235" display="mistakes">overall-error-rate</monitor>
+    <monitor x="25" precision="2" y="170" height="60" units="%" fontSize="11" width="235" display="mistakes">initial-error-rate</monitor>
   </widgets>
   <info>## WHAT IS IT?
 
