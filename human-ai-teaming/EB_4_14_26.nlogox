@@ -1,545 +1,977 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
-  <code><![CDATA[breed [workers worker] ; defines breed of turtles
-directed-link-breed [trust-links trust-link] ; one-way relationships
-                                             ; from "lens" agent
-                                             ; to "target" agent
+  <code><![CDATA[breed [workers worker]
+directed-link-breed [trust-links trust-link]
 
-globals [ ; model-level variables
-  total-task1 ; initial count of type 1 ("easier") tasks 
-              ; require less time and lower error rate
-  total-task2 ; initial count of type 2 ("harder") tasks 
-              ; require more time and higher error rate
-  total-tasks ; initial count of total tasks
-              ; (i.e., total-task1 + total-task2)
-  unassigned-task1 ; count of remaining unclaimed type 1 tasks
-  unassigned-task2 ; count of remaining unclaimed type 2 tasks
-  completed-task1 ; count of completed type 1 tasks
-                  ; includes those corrected due to monitoring
-  completed-task2 ; count of completed type 2 tasks
-                  ; includes those corrected due to monitoring
-  tasks-completed ; total count of completed tasks
-                  ; (i.e., completed-task1 + completed-task2)
-  errors-made ; count of tasks agents made errors on
-              ; includes those corrected due to monitoring
-  tasks-failed ; count of tasks failed due to error + 
-               ; lack of monitoring
-  switch-delay-hours ; penalty (hours) from switching
-                     ; back to direct work after monitoring
-  conference-seats ; seats around the center conference table 
-] ; end of sub-sequence
+globals [
+  ;; --- legacy globals kept for easier interface compatibility ---
+  total-task1
+  total-task2
+  total-tasks
+  unassigned-task1
+  unassigned-task2
+  completed-task1
+  completed-task2
+  tasks-completed
+  errors-made
+  tasks-failed
+  switch-delay-hours
+  conference-seats
 
-workers-own [ ; turtle-level variables
-  agent-name ; text label identifying each agent
-  role ; worker type (i.e., human or ai)
-  home-patch ; worker's desk (where direct work is completed)
-  guest-patch ; extra seat at each desk for helping agents 
-  current-task-type ; "0" (no task), 
-                    ; "1" (task type 1), or 
-                    ; "2" (task type 2)
-  current-task-remaining ; time (hours) to complete current task
-  help-buffer ; reduces rate of error during collaboration
-  requested-help? ; "true" (worker is asking for help)
-                  ; "false" (worker is *not* asking for help)
-  last-action ; stores workers last action
-  planned-action ; workers next action 
-  last-outcome ; stores workers most recent outcome 
-  being-monitored? ; "true" (agent is being monitored)
-                   ; "false" (agent is *not* being monitored)
-] ; end of sub-sequence
+  ;; --- new model globals ---
+  unassigned-tasks
+  self-caught-errors
+  max-ticks
+  task-workload
+  help-speed-factor
+  help-quality-factor
+  max-help-quality-bonus
+  status-tolerance
+  trust-learning-rate
+  human-ai-negative-cog-multiplier
+  human-ai-positive-affective-multiplier
+]
 
-trust-links-own [ ; one-way relationships between each agent 
-                  ; how "lens" agent sees "target" agent
-  trust ; lens agent's overall trust in target agent 
-        ; combines competence and team-oriented beliefs 
-  competence-belief ; does lens agent see target agent 
-                    ; as capable and reliable?
-  team-belief ; team-oriented belief, does
-              ; lens agent see target agent 
-              ; as supporting the team?
-] ; end of sub-sequence
+workers-own [
+  ;; identity / space
+  agent-name
+  role
+  home-patch
+  guest-patch
 
-; [#######################  [  SETUP  ]  ########################]
-; [#######################    \(^-^)/    ########################]
-; [#######################      | |      ########################]
-; [#######################      / \      ########################]
+  ;; legacy worker vars kept for easier compatibility
+  current-task-type
+  current-task-remaining
+  help-buffer
+  requested-help?
+  being-monitored?
 
-to setup ; begin model initialization sequence
-  clear-all ; reset everything
-  resize-world -16 16 -12 12 ; set view dimensions
-  setup-globals ; initialization (process below)
-  setup-space ; "
-  setup-workers ; "
-  setup-trust ; "
-  reset-ticks ; set ticks to 0
-end ; end model initialization sequence
+  ;; stable traits
+  base-ability
+  conscientiousness
+  agreeableness
+  efficiency
 
-to setup-globals ; begin global variable initialization sequence
-  set total-task1 75 ; initial count of type 1 tasks 
-  set total-task2 75 ; initial count of type 2 tasks
-  set total-tasks total-task1 + total-task2 ; calculation
-                                            ; of total tasks
-  set unassigned-task1 total-task1 ; intially unassigned = total
-  set unassigned-task2 total-task2 ; "
-  set completed-task1 0 ; initial = 0
-  set completed-task2 0 ; "
-  set tasks-completed 0 ; "
-  set errors-made 0 ; "
-  set tasks-failed 0 ; "
-  set switch-delay-hours 0.10 ; time (hours) penalty in direct
-                              ; work after monitoring
-end ; end of global variable initialization sequence
+  ;; current task state
+  task-ability
+  has-task?
+  current-progress
+  current-task-age
+  current-restarts
+  current-help-quality-bonus
+  current-status
+  asked-help-on-current-task?
 
-to setup-space ; begin view initialization sequence
-  ask patches [ ; patch visuals
-    set pcolor gray + 4 ; "
-    set plabel "" ; "
-    set plabel-color black ; "
-  ] ; end of sub-sequence
-  
-  ask patches with [abs pxcor <= 2 and abs pycor <= 1] [ ; "
-    set pcolor brown + 1 ; "
-  ] ; end of sub-sequence
-  
-  set conference-seats patches with [ ; "
-    (pxcor = -3 and pycor = 0) or ; "
-    (pxcor = 3 and pycor = 0) or ; "
-    (pxcor = 0 and pycor = 2) or ; "
-    (pxcor = 0 and pycor = -2) ; "
-  ] ; end of sub-sequence
-  
-  ask conference-seats [ ; "
-    set pcolor gray + 1 ; "
-  ] ; end of sub-sequence
-  
-  ask patch -11 8 ; create human 1's workspace
-  [ set pcolor brown - 1 set plabel "H1" ] ; "
-  ask patch -10 8 ; create guest space @ human 1's workspace
-  [ set pcolor brown + 1 ] ; "
-  ask patch -9 8  [ set pcolor gray + 2 set plabel "guest" ] ; "
- 
-  ask patch -11 -8 ; create human 2 workspace
-  [ set pcolor brown - 1 set plabel "H2" ] ; "
-  ask patch -10 -8 ; create guest space @ human 2's workspace
-  [ set pcolor brown + 1 ] ; "
-  ask patch -9 -8  [ set pcolor gray + 2 set plabel "guest" ] ; "
- 
-  ask patch 10 0 ; create AI workspace
-  [ set pcolor brown - 1 ] ; "
-  ask patch 11 0 ; create guest space @ AI's workspace
-  [ set pcolor brown + 1 set plabel "AI" ] ; "
-  ask patch 9 0  [ set pcolor gray + 2 set plabel "guest" ] ; "
-end ; end view initialization sequence
+  ;; current coordination state
+  planned-action
+  proposed-target
+  matched-helper
+  matched-target
 
-to setup-workers ; begin worker initialization sequence
-  create-workers 1 [ ; human 1
-                     ; create, label, and assign workstation 
-    initialize-worker ; "
-    set agent-name "H1" ; "
-    set role "human" ; "
-    set color green ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch -11 8 ; "
-    set guest-patch patch -9 8 ; "
-  ]  ; end of sub-sequence
-  
-  create-workers 1 [ ; human 2
-                     ; create, label, and assign workstation
-    initialize-worker ; "
-    set agent-name "H2" ; "
-    set role "human" ; "
-    set color green ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch -11 -8 ; "
-    set guest-patch patch -9 -8 ; "
-  ] ; end of sub-sequence
+  ;; tick-level flags
+  requested-help-this-tick?
+  received-help-this-tick?
+  helped-someone-this-tick?
+  self-caught-error-this-tick?
+  task-failed-this-tick?
+  task-succeeded-this-tick?
 
-  create-workers 1 [ ; AI
-                     ; create, label, and assign workstation
-    initialize-worker ; "
-    set agent-name "AI" ; "
-    set role "ai" ; "
-    set color red ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch 11 0 ; "
-    set guest-patch patch 9 0 ; "
-  ] ; end of sub-sequence
+  ;; summary memory
+  last-action
+  last-outcome
 
-  ask workers [ ; see below
-    move-to home-patch ; move agents to their respective workstations
-    set label agent-name ; set name labels on agents
-    set label-color black ; set color of agent's name labels
-  ] ; end of sub-sequence
-end ; end worker initialization sequence
+  ;; cumulative behavioral counts
+  tasks-started
+  help-requests-made
+  help-opportunities
+  help-given
+]
 
-to initialize-worker ; begin worker initialization sequence
-  set current-task-type 0 ; set initial values to 0, n/a, or false
-  set current-task-remaining 0 ; "
-  set help-buffer 0 ; "
-  set requested-help? false ; "
-  set last-action "" ; "
-  set planned-action "" ; "
-  set last-outcome "none" ; "
-  set being-monitored? false ; "
-end  ; begin worker initialization sequence
+trust-links-own [
+  trust
+  competence-belief
+  team-belief
+]
 
-to setup-trust ; begin trust initialization sequence
-  ask workers [ ; see below
-    create-trust-links-to other workers [ ; create links
-      set trust 0.5 ; set initial trust levels
-      set competence-belief 0.5 ; "
-      set team-belief 0.5 ; "
-      hide-link ; " ?
-    ] ; end of sub-sequence
-  ] ; end of sub-sequence
-end ; begin trust initialization sequence
+; =========================================================
+; SETUP
+; =========================================================
 
+to setup
+  clear-all
+  resize-world -16 16 -12 12
+  setup-globals
+  setup-space
+  setup-workers
+  setup-trust
+  sync-legacy-globals
+  sync-legacy-worker-vars
+  reset-ticks
+end
 
-;;; EB stopping point 4/13/26
-;; =========================
-;; MAIN LOOP
-;; =========================
+to setup-globals
+  ;; one task pool
+  set total-tasks 150
+  set unassigned-tasks total-tasks
+  set tasks-completed 0
+  set errors-made 0
+  set tasks-failed 0
+  set self-caught-errors 0
+
+  ;; model timing / workload
+  set max-ticks 600
+  set task-workload 8
+
+  ;; help mechanics
+  set help-speed-factor 0.5
+  set help-quality-factor 2
+  set max-help-quality-bonus 15
+
+  ;; status / trust parameters
+  set status-tolerance 0.10
+  set trust-learning-rate 0.25
+  set human-ai-negative-cog-multiplier 1.5
+  set human-ai-positive-affective-multiplier 0.75
+
+  ;; no switching delay in revised model
+  set switch-delay-hours 0
+end
+
+to setup-space
+  ask patches [
+    set pcolor gray + 4
+    set plabel ""
+    set plabel-color black
+  ]
+
+  ask patches with [abs pxcor <= 2 and abs pycor <= 1] [
+    set pcolor brown + 1
+  ]
+
+  set conference-seats patches with [
+    (pxcor = -3 and pycor = 0) or
+    (pxcor = 3 and pycor = 0) or
+    (pxcor = 0 and pycor = 2) or
+    (pxcor = 0 and pycor = -2)
+  ]
+
+  ask conference-seats [
+    set pcolor gray + 1
+  ]
+
+  ;; H1 workspace
+  ask patch -11 8 [ set pcolor brown - 1 set plabel "H1" ]
+  ask patch -10 8 [ set pcolor brown + 1 ]
+  ask patch -9 8  [ set pcolor gray + 2 set plabel "guest" ]
+
+  ;; H2 workspace
+  ask patch -11 -8 [ set pcolor brown - 1 set plabel "H2" ]
+  ask patch -10 -8 [ set pcolor brown + 1 ]
+  ask patch -9 -8  [ set pcolor gray + 2 set plabel "guest" ]
+
+  ;; AI workspace
+  ask patch 10 0 [ set pcolor brown - 1 set plabel "AI" ]
+  ask patch 11 0 [ set pcolor brown + 1 ]
+  ask patch 9 0  [ set pcolor gray + 2 set plabel "guest" ]
+end
+
+to setup-workers
+  create-workers 1 [
+    set agent-name "H1"
+    set role "human"
+    set color green
+    set shape "circle"
+    set size 1.5
+    set home-patch patch -11 8
+    set guest-patch patch -9 8
+    initialize-worker
+  ]
+
+  create-workers 1 [
+    set agent-name "H2"
+    set role "human"
+    set color green
+    set shape "circle"
+    set size 1.5
+    set home-patch patch -11 -8
+    set guest-patch patch -9 -8
+    initialize-worker
+  ]
+
+  create-workers 1 [
+    set agent-name "AI"
+    set role "ai"
+    set color red
+    set shape "circle"
+    set size 1.5
+    set home-patch patch 10 0
+    set guest-patch patch 9 0
+    initialize-worker
+  ]
+
+  ask workers [
+    move-to home-patch
+    set label agent-name
+    set label-color black
+    set planned-action "keep-working"
+  ]
+end
+
+to initialize-worker
+  ;; stable traits
+  if role = "human" [
+    set base-ability 60 + random 31
+    set conscientiousness 60 + random 31
+    set agreeableness 60 + random 31
+    set efficiency 1
+  ]
+
+  if role = "ai" [
+    set base-ability 40 + random 41
+    set conscientiousness 60 + random 21
+    set agreeableness 60 + random 21
+    set efficiency 2
+  ]
+
+  ;; current task state
+  set task-ability 0
+  set has-task? false
+  set current-progress 0
+  set current-task-age 0
+  set current-restarts 0
+  set current-help-quality-bonus 0
+  set current-status "idle"
+  set asked-help-on-current-task? false
+
+  ;; coordination state
+  set planned-action "keep-working"
+  set proposed-target nobody
+  set matched-helper nobody
+  set matched-target nobody
+
+  ;; tick flags
+  set requested-help-this-tick? false
+  set received-help-this-tick? false
+  set helped-someone-this-tick? false
+  set self-caught-error-this-tick? false
+  set task-failed-this-tick? false
+  set task-succeeded-this-tick? false
+
+  ;; history
+  set last-action ""
+  set last-outcome "none"
+
+  ;; counts
+  set tasks-started 0
+  set help-requests-made 0
+  set help-opportunities 0
+  set help-given 0
+
+  ;; legacy compatibility vars
+  set current-task-type 0
+  set current-task-remaining 0
+  set help-buffer 0
+  set requested-help? false
+  set being-monitored? false
+end
+
+to setup-trust
+  ask workers [
+    create-trust-links-to other workers [
+      let lens end1
+      let target end2
+
+      ;; cognitive trust (competence-belief)
+      if ([role] of lens = "human") and ([role] of target = "human") [
+        set competence-belief 60
+      ]
+      if ([role] of lens = "human") and ([role] of target = "ai") [
+        set competence-belief 40
+      ]
+      if ([role] of lens = "ai") and ([role] of target = "human") [
+        set competence-belief 50
+      ]
+      if ([role] of lens = "ai") and ([role] of target = "ai") [
+        set competence-belief 50
+      ]
+
+      ;; affective trust (team-belief)
+      if ([role] of lens = "human") and ([role] of target = "human") [
+        set team-belief 60
+      ]
+      if ([role] of lens = "human") and ([role] of target = "ai") [
+        set team-belief 30
+      ]
+      if ([role] of lens = "ai") and ([role] of target = "human") [
+        set team-belief 50
+      ]
+      if ([role] of lens = "ai") and ([role] of target = "ai") [
+        set team-belief 50
+      ]
+
+      set trust (competence-belief + team-belief) / 2
+      hide-link
+    ]
+  ]
+end
+
+; =========================================================
+; MAIN LOOP
+; =========================================================
 
 to go
-  if model-finished? [
-    stop
-  ]
+  if model-finished? [ stop ]
 
-  ask workers [ plan-action ]
+  reset-tick-flags
+  resolve-help-matches
+  claim-tasks-for-workers
+  age-active-tasks
+  ask workers [ perform-work ]
+  ask workers [ update-status ]
+  update-all-trust
+  ask workers [ choose-next-action ]
 
-  ;; Resolve collaboration first, then direct work.
-  ask workers with [planned-action = "ask"] [ do-ask ]
-  ask workers with [planned-action = "help"] [ do-help ]
-  ask workers with [planned-action = "monitor"] [ do-monitor ]
-  ask workers with [planned-action = "direct"] [ do-direct ]
+  sync-legacy-globals
+  sync-legacy-worker-vars
 
   tick
+  if model-finished? [ stop ]
+end
 
-  if model-finished? [
-    stop
+; =========================================================
+; TICK PHASES
+; =========================================================
+
+to reset-tick-flags
+  ask workers [
+    set proposed-target nobody
+    set matched-helper nobody
+    set matched-target nobody
+
+    set requested-help-this-tick? false
+    set received-help-this-tick? false
+    set helped-someone-this-tick? false
+    set self-caught-error-this-tick? false
+    set task-failed-this-tick? false
+    set task-succeeded-this-tick? false
   ]
 end
 
-to plan-action
-  if not any-work-remaining? [
-    set planned-action "monitor"
-    stop
-  ]
+to resolve-help-matches
+  let requesters workers with [planned-action = "ask-help" and has-task?]
+  let offerers workers with [planned-action = "offer-help"]
 
-  ;; If this worker is idle and all remaining work is already owned by someone else,
-  ;; lean toward helping/monitoring instead of starting empty direct work.
-  if (current-task-type = 0) and ((unassigned-task1 + unassigned-task2) = 0) [
-    let options (list "monitor")
-    if can-help? [ set options lput "help" options ]
-    set planned-action one-of options
-    stop
-  ]
-
-  ;; Direct work happens 65% of the time, which stays inside the requested 60-70% band.
-  if random-float 1 < 0.65 [
-    set planned-action "direct"
-    stop
-  ]
-
-  ;; Remaining time is split opportunistically across the other three actions.
-  let options (list "monitor")
-  if can-ask?  [ set options lput "ask" options ]
-  if can-help? [ set options lput "help" options ]
-  set planned-action one-of options
-end
-
-
-to-report can-ask?
-  report current-task-type != 0
-end
-
-
-to-report can-help?
-  report any? other workers with [requested-help?]
-end
-
-
-to do-ask
-  move-to one-of conference-seats
-  set requested-help? true
-  set last-action "ask"
-end
-
-
-to do-help
-  let candidates other workers with [requested-help?]
-
-  ifelse any? candidates [
-    let target one-of candidates
-    move-to [guest-patch] of target
-
-    ask target [
-      ;; Simple placeholder accuracy boost from collaboration.
-      set help-buffer min list 0.10 (help-buffer + 0.05)
-      set requested-help? false
-    ]
-
-    set last-action "help"
-  ]
-  [
-    do-monitor
-  ]
-end
-
-
-to do-monitor
-  let target one-of other workers
-
-  if target != nobody [
-    move-to one-of conference-seats
-    
-    ask target [
-      set being-monitored? true
-    ]
-
-    update-trust-in target
-
-    if [requested-help?] of target [
-      ask target [
-        set help-buffer min list 0.10 (help-buffer + 0.03)
-        set requested-help? false
-      ]
+  ask requesters [
+    set requested-help-this-tick? true
+    if not asked-help-on-current-task? [
+      set help-requests-made help-requests-made + 1
+      set asked-help-on-current-task? true
     ]
   ]
 
-  set last-action "monitor"
-end
-
-
-to update-trust-in [target]
-  let trust-edge out-trust-link-to target
-  if trust-edge = nobody [ stop ]
-
-  let competence-signal 0.5
-  if [last-outcome] of target = "success" [ set competence-signal 0.70 ]
-  if [last-outcome] of target = "error"   [ set competence-signal 0.30 ]
-
-  let team-signal 0.5
-  if member? ([last-action] of target) (list "help" "monitor") [
-    set team-signal 0.70
+  if (not any? requesters) or (not any? offerers) [
+    stop
   ]
 
-  ask trust-edge [
-    set competence-belief (0.80 * competence-belief) + (0.20 * competence-signal)
-    set team-belief       (0.80 * team-belief)       + (0.20 * team-signal)
-    set trust (competence-belief + team-belief) / 2
-  ]
-end
-
-
-to do-direct
-  let available-hours 1
-
-  if (last-action != "") and (last-action != "direct") [
-    set available-hours max list 0 (available-hours - switch-delay-hours)
-  ]
-
-  move-to home-patch
-
-  while [available-hours > 0] [
-    if current-task-type = 0 [
-      if not claim-next-task [
-        set available-hours 0
-      ]
+  ;; each offerer identifies the teammate they most want to help
+  ask offerers [
+    let target best-requester-for self requesters
+    if target != nobody [
+      set proposed-target target
     ]
+  ]
 
-    if current-task-type != 0 [
-      if available-hours < current-task-remaining [
-        set current-task-remaining current-task-remaining - available-hours
-        set available-hours 0
-      ]
-
-      if (current-task-type != 0) and (available-hours >= current-task-remaining) [
-        set available-hours available-hours - current-task-remaining
-        set current-task-remaining 0
-
-        if finish-task-attempt = "error" [
-          ;; Stop after an error and let the next tick handle the rework cycle.
-          set available-hours 0
+  ;; each requester keeps the most trusted incoming helper
+  ask requesters [
+    let offers other workers with [proposed-target = myself]
+    if any? offers [
+      let best-helper best-helper-for self offers
+      if best-helper != nobody [
+        set matched-helper best-helper
+        set received-help-this-tick? true
+        ask best-helper [
+          set matched-target myself
+          set helped-someone-this-tick? true
         ]
       ]
     ]
   ]
-
-  set last-action "direct"
 end
 
-
-to-report claim-next-task
-  if (unassigned-task1 + unassigned-task2) = 0 [
-    report false
+to claim-tasks-for-workers
+  ask workers with [matched-target = nobody] [
+    if (not has-task?) and (unassigned-tasks > 0) [
+      claim-next-task
+    ]
   ]
-
-  ifelse (unassigned-task1 > 0) and (unassigned-task2 > 0) [
-    set current-task-type one-of (list 1 2)
-  ]
-  [
-    if unassigned-task1 > 0 [ set current-task-type 1 ]
-    if unassigned-task2 > 0 [ set current-task-type 2 ]
-  ]
-
-  if current-task-type = 1 [ set unassigned-task1 unassigned-task1 - 1 ]
-  if current-task-type = 2 [ set unassigned-task2 unassigned-task2 - 1 ]
-
-  set current-task-remaining task-duration self current-task-type
-  report true
 end
 
+to age-active-tasks
+  ask workers with [has-task?] [
+    set current-task-age current-task-age + 1
+  ]
+end
 
-to-report finish-task-attempt
-  let finished-type current-task-type
-  let adjusted-error-probability max list 0 (base-error-probability self finished-type - help-buffer)
-  set help-buffer 0
+to perform-work
+  ;; helper spends the tick helping and makes no progress on own task
+  if matched-target != nobody [
+    move-to [guest-patch] of matched-target
+    set help-given help-given + 1
+    set last-action "help"
+    set last-outcome "none"
+    stop
+  ]
 
-  ifelse random-float 1 < adjusted-error-probability [
-    ;; An error occurred on this task attempt.
+  ;; active worker works on own task
+  if has-task? [
+    move-to home-patch
+
+    let progress-gained efficiency
+
+    if matched-helper != nobody [
+      let helper-eff [efficiency] of matched-helper
+      set progress-gained progress-gained + (help-speed-factor * helper-eff)
+      set current-help-quality-bonus clamp (current-help-quality-bonus + (help-quality-factor * helper-eff)) 0 max-help-quality-bonus
+    ]
+
+    if matched-helper != nobody [
+      set last-action "work-with-help"
+    ]
+    if (matched-helper = nobody) and (planned-action = "ask-help") [
+      set last-action "ask-help"
+    ]
+    if (matched-helper = nobody) and (planned-action != "ask-help") [
+      set last-action "work"
+    ]
+
+    set current-progress current-progress + progress-gained
+
+    if current-progress >= task-workload [
+      resolve-task-completion
+    ]
+
+    if (not task-succeeded-this-tick?) and (not task-failed-this-tick?) and (not self-caught-error-this-tick?) [
+      set last-outcome "none"
+    ]
+    stop
+  ]
+
+  ;; idle worker
+  move-to home-patch
+  if planned-action = "offer-help" [
+    set last-action "offer-help"
+  ]
+  if planned-action != "offer-help" [
+    set last-action "idle"
+  ]
+  set last-outcome "none"
+end
+
+; =========================================================
+; TASK LOGIC
+; =========================================================
+
+to claim-next-task
+  if unassigned-tasks <= 0 [ stop ]
+
+  set has-task? true
+  set current-progress 0
+  set current-task-age 0
+  set current-restarts 0
+  set current-help-quality-bonus 0
+  set task-ability draw-task-ability base-ability role
+  set asked-help-on-current-task? false
+
+  set tasks-started tasks-started + 1
+  set unassigned-tasks unassigned-tasks - 1
+end
+
+to resolve-task-completion
+  let effective-ability clamp (task-ability + current-help-quality-bonus) 0 100
+
+  ifelse (random-float 100 < effective-ability) [
+    ;; success
+    set tasks-completed tasks-completed + 1
+    set task-succeeded-this-tick? true
+    set last-outcome "success"
+
+    clear-current-task
+  ] [
+    ;; error occurred
     set errors-made errors-made + 1
 
-    ifelse being-monitored? [
-      ;; The error is caught/corrected by a monitor,
-      ;; so the task still counts as completed.
-      set tasks-completed tasks-completed + 1
-      if finished-type = 1 [ set completed-task1 completed-task1 + 1 ]
-      if finished-type = 2 [ set completed-task2 completed-task2 + 1 ]
+    ifelse (random-float 100 < conscientiousness) [
+      ;; self-caught error -> restart same task next tick
+      set self-caught-errors self-caught-errors + 1
+      set self-caught-error-this-tick? true
+      set last-outcome "restart"
 
-      set current-task-type 0
-      set current-task-remaining 0
-      set last-outcome "rescued"
-      set requested-help? false
-
-      report "rescued"
-    ]
-    [
-      ;; The error is not corrected, so the task fails and leaves the system.
+      set current-progress 0
+      set current-task-age 0
+      set current-restarts current-restarts + 1
+      set current-help-quality-bonus 0
+      ;; keep same task and same task-ability
+    ] [
+      ;; uncaught failure -> task leaves system
       set tasks-failed tasks-failed + 1
+      set task-failed-this-tick? true
+      set last-outcome "failed"
 
-      set current-task-type 0
-      set current-task-remaining 0
-      set last-outcome "error"
-      set requested-help? false
-
-      report "failed"
+      clear-current-task
     ]
   ]
-  [
-    ;; No error occurred, so the task completes normally.
-    set tasks-completed tasks-completed + 1
-    if finished-type = 1 [ set completed-task1 completed-task1 + 1 ]
-    if finished-type = 2 [ set completed-task2 completed-task2 + 1 ]
+end
 
-    set current-task-type 0
-    set current-task-remaining 0
-    set last-outcome "success"
+to clear-current-task
+  set has-task? false
+  set task-ability 0
+  set current-progress 0
+  set current-task-age 0
+  set current-restarts 0
+  set current-help-quality-bonus 0
+  set asked-help-on-current-task? false
+end
+
+to-report draw-task-ability [base role-name]
+  let raw round random-normal base 8
+
+  if role-name = "human" [
+    report clamp raw 60 90
+  ]
+
+  if role-name = "ai" [
+    report clamp raw 40 80
+  ]
+
+  report clamp raw 0 100
+end
+
+; =========================================================
+; STATUS + DECISION RULES
+; =========================================================
+
+to update-status
+  if not has-task? [
+    ifelse any-work-remaining? [
+      set current-status "idle"
+    ] [
+      set current-status "done"
+    ]
+    stop
+  ]
+
+  let expected-progress min list task-workload (current-task-age * efficiency)
+  let tolerance (status-tolerance * task-workload)
+
+  if current-progress > (expected-progress + tolerance) [
+    set current-status "ahead"
+    stop
+  ]
+
+  if current-progress < (expected-progress - tolerance) [
+    set current-status "behind"
+    stop
+  ]
+
+  set current-status "on-track"
+end
+
+to choose-next-action
+  if has-help-opportunity? [
+    set help-opportunities help-opportunities + 1
+  ]
+
+  ;; idle agents: claim new work if possible; otherwise may help
+  if not has-task? [
+    if unassigned-tasks > 0 [
+      set planned-action "keep-working"
+      set requested-help? false
+      stop
+    ]
+
+    if any? other workers with [current-status = "behind"] [
+      set planned-action "offer-help"
+      set requested-help? false
+      stop
+    ]
+
+    if (any? other workers with [current-status = "on-track"]) and discretionary-help? [
+      set planned-action "offer-help"
+      set requested-help? false
+      stop
+    ]
+
+    set planned-action "keep-working"
     set requested-help? false
+    stop
+  ]
 
-    report "success"
+  let ahead-teammates other workers with [current-status = "ahead"]
+  let ontrack-teammates other workers with [current-status = "on-track"]
+  let behind-teammates other workers with [current-status = "behind"]
+
+  ;; behind
+  if current-status = "behind" [
+    if any? other workers with [member? current-status (list "on-track" "ahead")] [
+      set planned-action "ask-help"
+      set requested-help? true
+      stop
+    ]
+
+    set planned-action "keep-working"
+    set requested-help? false
+    stop
+  ]
+
+  ;; on-track
+  if current-status = "on-track" [
+    if (any? behind-teammates) and discretionary-help? [
+      set planned-action "offer-help"
+      set requested-help? false
+      stop
+    ]
+
+    if any? ahead-teammates [
+      let trusted-helper best-trusted-helper ahead-teammates
+      if (trusted-helper != nobody) and (task-ability < competence-belief-from self trusted-helper) [
+        set planned-action "ask-help"
+        set requested-help? true
+        stop
+      ]
+    ]
+
+    set planned-action "keep-working"
+    set requested-help? false
+    stop
+  ]
+
+  ;; ahead
+  if current-status = "ahead" [
+    if any? behind-teammates [
+      set planned-action "offer-help"
+      set requested-help? false
+      stop
+    ]
+
+    if (any? ontrack-teammates) and discretionary-help? [
+      set planned-action "offer-help"
+      set requested-help? false
+      stop
+    ]
+
+    set planned-action "keep-working"
+    set requested-help? false
+    stop
+  ]
+
+  set planned-action "keep-working"
+  set requested-help? false
+end
+
+to-report has-help-opportunity?
+  if (not has-task?) and (unassigned-tasks = 0) and any? other workers with [has-task?] [
+    report true
+  ]
+
+  if (current-status = "ahead") and any? other workers with [member? current-status (list "behind" "on-track")] [
+    report true
+  ]
+
+  if (current-status = "on-track") and any? other workers with [current-status = "behind"] [
+    report true
+  ]
+
+  report false
+end
+
+to-report discretionary-help?
+  let mean-team-belief 0
+  if any? my-out-links [
+    set mean-team-belief mean [team-belief] of my-out-links
+  ]
+
+  report (agreeableness >= 80) or (agreeableness > (mean-team-belief + 15))
+end
+
+; =========================================================
+; MATCHING HELPERS / REQUESTERS
+; =========================================================
+
+to-report best-helper-for [requester helper-set]
+  if not any? helper-set [ report nobody ]
+  report max-one-of helper-set [
+    competence-belief-from requester self
   ]
 end
 
-;; =========================
-;; TASK RULES
-;; =========================
-
-to-report task-duration [agent task-type]
-  if [role] of agent = "human" [
-    if task-type = 1 [ report 1 ]
-    if task-type = 2 [ report 2 ]
+to-report best-trusted-helper [candidate-set]
+  if not any? candidate-set [ report nobody ]
+  let requester self
+  report max-one-of candidate-set [
+    competence-belief-from requester self
   ]
-
-  if [role] of agent = "ai" [
-    if task-type = 1 [ report 0.5 ]
-    if task-type = 2 [ report 1 ]
-  ]
-
-  report 1
 end
 
-
-to-report base-error-probability [agent task-type]
-  if [role] of agent = "human" [
-    if task-type = 1 [ report random-float 0.10 ]
-    if task-type = 2 [ report 0.10 + random-float 0.10 ]
+to-report best-requester-for [helper requester-set]
+  if not any? requester-set [ report nobody ]
+  report max-one-of requester-set [
+    requester-choice-score self helper
   ]
-
-  if [role] of agent = "ai" [
-    if task-type = 1 [ report 0.05 + random-float 0.10 ]
-    if task-type = 2 [ report 0.20 + random-float 0.15 ]
-  ]
-
-  report 0
 end
 
+to-report requester-choice-score [requester helper]
+  let severity 0
+  if [current-status] of requester = "behind" [ set severity 2 ]
+  if [current-status] of requester = "on-track" [ set severity 1 ]
 
-;; =========================
-;; SNAPSHOTS / REPORTERS
-;; =========================
+  let shortfall progress-shortfall-of requester
+  report (1000 * severity) + shortfall + (0.01 * team-belief-from helper requester)
+end
+
+to-report progress-shortfall-of [agent]
+  if not [has-task?] of agent [ report 0 ]
+
+  let expected-progress min list task-workload ([current-task-age] of agent * [efficiency] of agent)
+  let shortfall expected-progress - [current-progress] of agent
+  report max list 0 shortfall
+end
+
+; =========================================================
+; TRUST UPDATING
+; =========================================================
+
+to update-all-trust
+  ask trust-links [
+    let lens end1
+    let target end2
+
+    let cog-delta cognitive-delta lens target
+    let aff-delta affective-delta lens target
+
+    ;; humans judge AI more harshly on competence failures,
+    ;; and update affective trust upward more slowly.
+    if ([role] of lens = "human") and ([role] of target = "ai") [
+      if cog-delta < 0 [
+        set cog-delta cog-delta * human-ai-negative-cog-multiplier
+      ]
+      if aff-delta > 0 [
+        set aff-delta aff-delta * human-ai-positive-affective-multiplier
+      ]
+    ]
+
+    set competence-belief clamp (competence-belief + (trust-learning-rate * cog-delta)) 0 100
+    set team-belief clamp (team-belief + (trust-learning-rate * aff-delta)) 0 100
+    set trust (competence-belief + team-belief) / 2
+  ]
+end
+
+to-report cognitive-delta [lens target]
+  let delta 0
+
+  ;; status signal
+  if [current-status] of target = "ahead" [
+    set delta delta + 1.0
+  ]
+
+  if [current-status] of target = "on-track" [
+    set delta delta + 0.5
+  ]
+
+  if [current-status] of target = "behind" [
+    ifelse [helped-someone-this-tick?] of target [
+      set delta delta - 0.25
+    ] [
+      set delta delta - 0.75
+    ]
+  ]
+
+  ;; help-seeking / help-giving signals
+  if [requested-help-this-tick?] of target [
+    set delta delta - 1.5
+  ]
+
+  if [matched-target] of lens = target [
+    set delta delta - 2.0
+  ]
+
+  if ([matched-helper] of lens = target) and (not [self-caught-error-this-tick?] of lens) and (not [task-failed-this-tick?] of lens) [
+    set delta delta + 2.0
+  ]
+
+  ;; error / outcome signals
+  if [self-caught-error-this-tick?] of target [
+    set delta delta - 2.5
+  ]
+
+  if [task-failed-this-tick?] of target [
+    set delta delta - 6.0
+  ]
+
+  if [task-succeeded-this-tick?] of target [
+    set delta delta + 0.5
+  ]
+
+  report delta
+end
+
+to-report affective-delta [lens target]
+  let delta 0
+
+  if [matched-helper] of lens = target [
+    set delta delta + 4.0
+  ]
+  if ([matched-helper] of lens != target) and [helped-someone-this-tick?] of target [
+    set delta delta + 1.5
+  ]
+
+  if needs-help-often? target [
+    set delta delta - 1.5
+  ]
+
+  if rarely-helps-when-able? target [
+    set delta delta - 1.5
+  ]
+
+  report delta
+end
+
+to-report needs-help-often? [agent]
+  if [tasks-started] of agent < 3 [ report false ]
+  report (([help-requests-made] of agent) / ([tasks-started] of agent)) > 0.50
+end
+
+to-report rarely-helps-when-able? [agent]
+  if [help-opportunities] of agent < 3 [ report false ]
+  report (([help-given] of agent) / ([help-opportunities] of agent)) < 0.25
+end
+
+to-report competence-belief-from [lens target]
+  let edge [out-trust-link-to target] of lens
+  ifelse edge != nobody [
+    report [competence-belief] of edge
+  ] [
+    report 0
+  ]
+end
+
+to-report team-belief-from [lens target]
+  let edge [out-trust-link-to target] of lens
+  ifelse edge != nobody [
+    report [team-belief] of edge
+  ] [
+    report 0
+  ]
+end
+
+; =========================================================
+; COMPATIBILITY HELPERS
+; =========================================================
+
+to sync-legacy-globals
+  set total-task1 total-tasks
+  set total-task2 0
+  set unassigned-task1 unassigned-tasks
+  set unassigned-task2 0
+  set completed-task1 tasks-completed
+  set completed-task2 0
+end
+
+to sync-legacy-worker-vars
+  ask workers [
+    ifelse has-task? [
+      set current-task-type 1
+      set current-task-remaining max list 0 (task-workload - current-progress)
+    ] [
+      set current-task-type 0
+      set current-task-remaining 0
+    ]
+
+    set help-buffer current-help-quality-bonus
+    set requested-help? (planned-action = "ask-help")
+    set being-monitored? false
+  ]
+end
+
+to-report clamp [x low high]
+  report max list low (min list high x)
+end
+
+; =========================================================
+; REPORTERS
+; =========================================================
 
 to-report percent-tasks-complete
   if total-tasks = 0 [ report 0 ]
   report 100 * tasks-completed / total-tasks
 end
 
-
 to-report initial-error-rate
-  if (tasks-completed + tasks-failed) = 0 [ report 0 ]
-  report 100 * errors-made / (tasks-completed + tasks-failed)
+  let resolved-attempts tasks-completed + tasks-failed + self-caught-errors
+  if resolved-attempts = 0 [ report 0 ]
+  report 100 * errors-made / resolved-attempts
 end
 
 to-report task-failure-rate
-  if (tasks-completed + tasks-failed) = 0 [ report 0 ]
-  report 100 * tasks-failed / (tasks-completed + tasks-failed)
+  let terminal-attempts tasks-completed + tasks-failed
+  if terminal-attempts = 0 [ report 0 ]
+  report 100 * tasks-failed / terminal-attempts
 end
 
 to-report tasks-rescued
-  report errors-made - tasks-failed
+  ;; compatibility shim: now means self-caught / restarted errors
+  report self-caught-errors
 end
 
 to-report average-trust
   ifelse any? trust-links [
-    report 100 * mean [trust] of trust-links
-  ]
-  [
+    report mean [trust] of trust-links
+  ] [
     report 0
   ]
 end
 
+to-report average-cognitive-trust
+  ifelse any? trust-links [
+    report mean [competence-belief] of trust-links
+  ] [
+    report 0
+  ]
+end
+
+to-report average-affective-trust
+  ifelse any? trust-links [
+    report mean [team-belief] of trust-links
+  ] [
+    report 0
+  ]
+end
+
+to-report tasks-remaining
+  report unassigned-tasks + count workers with [has-task?]
+end
 
 to-report task1-remaining
-  report unassigned-task1 + count workers with [current-task-type = 1]
+  ;; compatibility shim for old interface
+  report tasks-remaining
 end
-
 
 to-report task2-remaining
-  report unassigned-task2 + count workers with [current-task-type = 2]
+  ;; compatibility shim for old interface
+  report 0
 end
-
 
 to-report any-work-remaining?
   report (tasks-completed + tasks-failed) < total-tasks
 end
 
-
 to-report model-finished?
-  report (ticks >= 224) or ((tasks-completed + tasks-failed) >= total-tasks)
+  report (ticks >= max-ticks) or ((tasks-completed + tasks-failed) >= total-tasks)
 end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="25" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
     <button x="165" y="30" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="96" display="go forever">go</button>
     <button x="95" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="go">go</button>
-    <monitor x="25" precision="2" y="90" height="60" units="%" fontSize="11" width="235" display="task completion">percent-tasks-complete</monitor>
-    <monitor x="25" precision="2" y="330" height="60" fontSize="11" width="235" display="to do: task 1">task1-remaining</monitor>
-    <monitor x="25" precision="2" y="410" height="60" fontSize="11" width="235" display="to do: task 2">task2-remaining</monitor>
-    <monitor x="25" precision="2" y="250" height="60" fontSize="11" width="235" display="mean trust">average-trust</monitor>
-    <monitor x="25" precision="2" y="170" height="60" units="%" fontSize="11" width="235" display="mistakes">initial-error-rate</monitor>
   </widgets>
   <info>## WHAT IS IT?
 
