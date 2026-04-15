@@ -121,9 +121,9 @@ to setup-globals ; begin global variable initialization process
   set total-tasks 150 ; count of total tasks
   set unassigned-tasks total-tasks ; all tasks unassigned at setup
   set tasks-completed 0 ; set initial values
-  set errors-made 0 : "
-  set tasks-failed 0 : "
-  set self-caught-errors 0 : "
+  set errors-made 0 ; "
+  set tasks-failed 0 ; "
+  set self-caught-errors 0 ; "
   set task-workload 8 ; "
   set help-speed-factor 0.5 ; "
   set help-quality-factor 2 ; "
@@ -535,112 +535,129 @@ end ; end task ability sequence
 ; STATUS + DECISION RULES
 ; =========================================================
 
-to update-status ; 
-  if not has-task? [
-    ifelse any-work-remaining? [
-      set current-status "idle"
-    ] [
-      set current-status "done"
-    ]
-    stop
-  ]
+to update-status ; begin agent status update sequence
+                 ; determines "ahead", "behind", and 
+                 ; "on-track"
+  if not has-task? [ ; only if no task
+    ifelse any-work-remaining? [ ; team has work to do
+      set current-status "idle" ; update metric
+    ] [ ; if no work to do
+      set current-status "done" ; status = done
+    ] ; "
+    stop ; "
+  ] ; "
 
-  let expected-progress 
-  min list task-workload (current-task-age * efficiency)
-  let tolerance 
-  (status-tolerance * task-workload)
+  let expected-progress ; progress expected, based on
+                        ; actual and expected pace 
+  min list task-workload (current-task-age * efficiency) ; "
+  let tolerance ; band around expected progress
+  (status-tolerance * task-workload) ; "
 
-  if current-progress > (expected-progress + tolerance) [
-    set current-status "ahead"
-    stop
-  ]
+  if ; ahead condition requirements
+  current-progress > (expected-progress + tolerance) [ ; "
+    set current-status "ahead" ; "
+    stop ; "
+  ] ; "
 
-  if current-progress < (expected-progress - tolerance) [
-    set current-status "behind"
-    stop
-  ]
+  if ; behind condition requirements
+  current-progress < (expected-progress - tolerance) [ ; "
+    set current-status "behind" ; "
+    stop ; "
+  ] ; "
 
-  set current-status "on-track"
-end
+  set current-status "on-track" ; otherwise, count as on-track
+end ; end agent status update sequence
 
-to choose-next-action
-  if has-help-opportunity? [
-    set help-opportunities help-opportunities + 1
-  ]
+to choose-next-action ; begin choose next action sequence
+  if has-help-opportunity? [ ; update metric 
+    set help-opportunities help-opportunities + 1 ; "
+  ] ; "
 
-  ;; idle agents: claim new work if possible; otherwise may help
-  if not has-task? [
-    if unassigned-tasks > 0 [
-      set planned-action "keep-working"
-      stop
-    ]
+  if not has-task? [ ; if no current task
+    if unassigned-tasks > 0 [ ; and unclaimed tasks remain
+      set planned-action "keep-working" ; plan to continue working
+      stop ; "
+    ] ; "
 
-    if any? other workers with [current-status = "behind"] [
-      set planned-action "offer-help"
-      stop
-    ]
+    if any? ; offer help if no unassigned tasks left 
+            ; and teammate is behind 
+    other workers with [current-status = "behind"] [ ; "
+      set planned-action "offer-help" ; "
+      stop ; "
+    ] ; "
 
-    if (any? other workers with [current-status = "on-track"]) and discretionary-help? [
-      set planned-action "offer-help"
-      stop
-    ]
+    if ; if no new tasks remain, optionally help an on-track teammate
+       ; depending on agent characteristics
+    (any? other workers with [current-status = "on-track"]) ; "
+    and discretionary-help? [ ; "
+      set planned-action "offer-help" ; "
+      stop ; "
+    ] ; "
 
-    set planned-action "keep-working"
-    stop
-  ]
+    set planned-action "keep-working" ; if none above apply
+    stop ; "
+  ] ; "
 
-  let ahead-teammates other workers with [current-status = "ahead"]
-  let ontrack-teammates other workers with [current-status = "on-track"]
-  let behind-teammates other workers with [current-status = "behind"]
+  let ahead-teammates ; label teammates who are "ahead"
+  other workers with [current-status = "ahead"] ; "
+  let ontrack-teammates ; label teammates who are "on-track"
+  other workers with [current-status = "on-track"] ; "
+  let behind-teammates ; label teammates who are "behind"
+  other workers with [current-status = "behind"] ; "
 
-  ;; behind
-  if current-status = "behind" [
-    if any? other workers with [member? current-status (list "on-track" "ahead")] [
-      set planned-action "ask-help"
-      stop
-    ]
+  if current-status = "behind" [ ; action if behind
+    if any? ; "
+    other workers with ; "
+    [member? current-status (list "on-track" "ahead")] [ ; "
+      set planned-action "ask-help" ; "
+      stop ; "
+    ] ; "
+    set planned-action "keep-working" ; "
+    stop ; "
+  ] ; "
 
-    set planned-action "keep-working"
-    stop
-  ]
+  if current-status = "on-track" [ ; decision rules for on-track agent
+    if (any? behind-teammates) and discretionary-help? [ ; "
+      set planned-action "offer-help" ; offer help if others are behind and 
+                                      ; i'm willing to help
+      stop ; "
+    ] ; "
 
-  ;; on-track
-  if current-status = "on-track" [
-    if (any? behind-teammates) and discretionary-help? [
-      set planned-action "offer-help"
-      stop
-    ]
+    if any? ahead-teammates [ ; find ahead teammate worker trusts for competence
+      let trusted-helper best-trusted-helper ahead-teammates ; "
+      if ; ask for help if trusted ahead teammate is perceived to be more competent 
+      (trusted-helper != nobody) ; "
+      and (task-ability < competence-belief-from self trusted-helper) [ ; "
+        set planned-action "ask-help" ; "
+        stop ; "
+      ] ; "
+    ] ; "
 
-    if any? ahead-teammates [
-      let trusted-helper best-trusted-helper ahead-teammates
-      if (trusted-helper != nobody) and (task-ability < competence-belief-from self trusted-helper) [
-        set planned-action "ask-help"
-        stop
-      ]
-    ]
+    set planned-action "keep-working" ; otherwise, keep working
+    stop ; "
+  ] ; "
 
-    set planned-action "keep-working"
-    stop
-  ]
+  if current-status = "ahead" [ ; if ahead 
+    if any? behind-teammates [ ; offer to any behind
+      set planned-action "offer-help" ; "
+      stop ; "
+    ] ; "
 
-  ;; ahead
-  if current-status = "ahead" [
-    if any? behind-teammates [
-      set planned-action "offer-help"
-      stop
-    ]
+    if ; may offer help to on-track
+    (any? ontrack-teammates) and discretionary-help? [ ; "
+      set planned-action "offer-help" ; "
+      stop ; "
+    ] ; "
 
-    if (any? ontrack-teammates) and discretionary-help? [
-      set planned-action "offer-help"
-      stop
-    ]
+    set planned-action "keep-working" ; otherwise, keep working
+    stop ; "
+  ] ; "
 
-    set planned-action "keep-working"
-    stop
-  ]
+  set planned-action "keep-working" ; "
+end ; end choose next action sequence
 
-  set planned-action "keep-working"
-end
+
+; EB stopping point 3/14 
 
 to-report has-help-opportunity?
   if (not has-task?) and (unassigned-tasks = 0) and any? other workers with [has-task?] [
@@ -904,7 +921,7 @@ to-report any-work-remaining?
 end
 
 to-report model-finished?
-  report (ticks >= max-ticks) or ((tasks-completed + tasks-failed) >= total-tasks)
+  report ((tasks-completed + tasks-failed) >= total-tasks)
 end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
