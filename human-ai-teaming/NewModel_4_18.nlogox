@@ -15,7 +15,6 @@ globals [ ; model-level variables
   avg-ai-to-human-trust ; mean trust of ai in humans
   avg-all-trust ; mean trust of all links
   total-monitoring-events ; count of all monitoring actions 
-  skipped-trust-updates-no-data ; count of all monitoring skipped actions 
 ]
 
 workers-own [ ; agent-level variables
@@ -35,8 +34,10 @@ workers-own [ ; agent-level variables
                          ; based on trait conscientiousness
   total-monitoring-events ; count of times agent monitored another agent
   times-monitored-by-others ; count of times agent was monitored
-  completed-history ; count of tasks completed in 3 ticks
-  successful-history ; count of tasks successfully completed in last 3 ticks
+  completed-history ; count of per-tick completed tasks
+                    ; stores 3 most recent values
+  successful-history ; count of per-tick successfully completed tasks
+                     ; stores 3 most recent values
 ]
   
 trust-links-own [ ; properties of each one-way relationship 
@@ -73,12 +74,12 @@ to setup-workers ; begin agent initialization process
     set completed-history [] ; "
     set successful-history [] ; "
   ]
- let ai-agent one-of workers ; create 1 ai agent
+ let ai-agent one-of workers ; assigns one agent as ai
  ask ai-agent [ ; "
     set agent-type "ai" ; "
     set color red ; "
   ]
- ask other workers with [self != ai-agent] [ ; create 2 human agents
+ ask other workers with [self != ai-agent] [ ; assigns remaining 2 agents as humans
     set agent-type "human" ; "
     set color blue ; "
   ]
@@ -93,7 +94,9 @@ to setup-workers ; begin agent initialization process
     ]
     set conscientiousness clip 0 100 (random-normal conscientiousness-mean conscientiousness-sd) ; "
     set openness clip 0 100 (random-normal openness-mean openness-sd) ; "
-    set monitoring-probability min-monitor + (conscientiousness / 100) * (max-monitor - min-monitor) ; "
+    
+    set monitoring-probability ; calculate monitoring probability, based on trait conscientiousness
+    min-monitor + (conscientiousness / 100) * (max-monitor - min-monitor) ; "
   ]
 end
 
@@ -140,7 +143,7 @@ end
 ;====================================================
 
 to do-work
-  ask workers [ ; rest 1-tick monitors
+  ask workers [ ; rest monitoring flags for all agents at start of tick
     set monitored-this-tick? false ; "
     set monitor-target nobody ; "
     let completed-this-tick 0 ; "
@@ -148,9 +151,11 @@ to do-work
     set current-task-progress ; increase task progress based on efficiency
         current-task-progress + efficiency ; "
 
-    while [current-task-progress >= 1] [ ; if efficiency is > 1
-      set current-task-progress current-task-progress - 1 ; update current task progresss
-      set completed-this-tick completed-this-tick + 1 ; update task completed progress
+    while [current-task-progress >= 1] [ ; if progress is 1 or > 1
+      set current-task-progress current-task-progress - 1 ; removes completed task from 
+                                                          ; total progress, allows for fraction of
+                                                          ; next task not complete to carry over
+      set completed-this-tick completed-this-tick + 1 ; update task completed this tick
       set completed-tasks completed-tasks + 1 ; "
 ifelse (random-float 100 < ability) [ ; check accuracy and update metrics
         set successful-this-tick successful-this-tick + 1 ; "
@@ -176,6 +181,8 @@ end
 ;====================================================
 
 to decide-monitoring ; to monitor or not to monitor
+ if ticks < 2 [ stop ] ; prevents monitoring before 3 ticks have passed
+  
   ask workers [ ; "
     if random-float 1 < monitoring-probability [ ; "
       set monitored-this-tick? true ; "
@@ -209,15 +216,14 @@ end
 to update-trust-from-monitoring [target-agent] ; trust updating
   let target-completed sum [completed-history] of target-agent ; total target tasks completed in past 3 ticks
   let target-successful sum [successful-history] of target-agent ; total target tasks completed successfully in past 3 ticks
-  if target-completed = 0 [ ; if no tasks completed in last 3 ticks, don't update trust
-    set skipped-trust-updates-no-data skipped-trust-updates-no-data + 1 ; "
-    stop 
-  ]
-  let observed-performance 100 * (target-successful / target-completed) ; calculate target performance over past 3 ticks
+  let observed-performance 0 ; set observed performance to 0
+ if target-completed > 0 [ ; override the 0 if target has completed task(s) 
+  set observed-performance 100 * (target-successful / target-completed) ; "
+]  
   let my-link trust-link-to target-agent ; set link to target agent
-  let old-trust [trust-value] of my-link ; set priors (initial trust if first time monitoring this agent)
+  let old-trust [trust-value] of my-link ; set current trust (initial trust if first time monitoring this agent)
   let alpha base-alpha + (openness / 100) * alpha-range ; trait openness controls learning rate alpha
-  let gap observed-performance - old-trust ; consider difference in expected and observed progress
+  let gap observed-performance - old-trust ; consider difference in expected and observed success rate 
   if gap < 0 and [agent-type] of target-agent = "ai" [ ; stronger negative penalty for ai mistakes
     set gap gap * ai-negative-penalty ; "
   ]
