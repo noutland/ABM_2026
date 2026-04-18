@@ -35,8 +35,8 @@ workers-own [ ; agent-level variables
                          ; based on trait conscientiousness
   total-monitoring-events ; count of times agent monitored another agent
   times-monitored-by-others ; count of times agent was monitored
-  completed-history ; count of tasks completed in last tick
-  successful-history ; count of tasks successfully completed in last tick
+  completed-history ; count of tasks completed in 3 ticks
+  successful-history ; count of tasks successfully completed in last 3 ticks
 ]
   
 trust-links-own [ ; properties of each one-way relationship 
@@ -135,44 +135,38 @@ to go ; process for each tick
   tick ; move time forward 1 step
 end
 
-;;;;; --- pick up on commenting from here --- ;;;;;
 ;====================================================
 ; WORK
 ;====================================================
 
 to do-work
-  ask workers [
-    set monitored-this-tick? false
-    set monitor-target nobody
+  ask workers [ ; rest 1-tick monitors
+    set monitored-this-tick? false ; "
+    set monitor-target nobody ; "
+    let completed-this-tick 0 ; "
+    let successful-this-tick 0 ; "
+    set current-task-progress ; increase task progress based on efficiency
+        current-task-progress + efficiency ; "
 
-    let completed-this-tick 0
-    let successful-this-tick 0
-
-    ; Add progress based on efficiency
-    set current-task-progress current-task-progress + efficiency
-
-    ; Allow multiple task completions in one tick if efficiency is high enough
-    while [current-task-progress >= 1] [
-      set current-task-progress current-task-progress - 1
-      set completed-this-tick completed-this-tick + 1
-      set completed-tasks completed-tasks + 1
-ifelse (random-float 100 < ability) [
-        set successful-this-tick successful-this-tick + 1
-        set successful-tasks successful-tasks + 1
+    while [current-task-progress >= 1] [ ; if efficiency is > 1
+      set current-task-progress current-task-progress - 1 ; update current task progresss
+      set completed-this-tick completed-this-tick + 1 ; update task completed progress
+      set completed-tasks completed-tasks + 1 ; "
+ifelse (random-float 100 < ability) [ ; check accuracy and update metrics
+        set successful-this-tick successful-this-tick + 1 ; "
+        set successful-tasks successful-tasks + 1 ; "
       ] [
-        set failed-tasks failed-tasks + 1
+        set failed-tasks failed-tasks + 1 ; "
       ]
     ]
+    set completed-history lput completed-this-tick completed-history ; update history 
+    set successful-history lput successful-this-tick successful-history ; "
 
-    ; Store rolling 3-tick history
-    set completed-history lput completed-this-tick completed-history
-    set successful-history lput successful-this-tick successful-history
-
-  if length completed-history > 3 [
-      set completed-history but-first completed-history
+  if length completed-history > 3 [  ; "
+      set completed-history but-first completed-history ; "
     ]
-    if length successful-history > 3 [
-      set successful-history but-first successful-history
+    if length successful-history > 3 [  ; "
+      set successful-history but-first successful-history ; "
     ]
   ]
 end
@@ -181,67 +175,55 @@ end
 ; MONITORING
 ;====================================================
 
-to decide-monitoring
-  ask workers [
-    if random-float 1 < monitoring-probability [
-      set monitored-this-tick? true
-      set total-monitoring-events total-monitoring-events + 1
+to decide-monitoring ; to monitor or not to monitor
+  ask workers [ ; "
+    if random-float 1 < monitoring-probability [ ; "
+      set monitored-this-tick? true ; "
+      set total-monitoring-events total-monitoring-events + 1 ; "
     ]
   ]
 end
 
-to do-monitoring
-  ask workers with [monitored-this-tick?] [
-    let target choose-least-trusted-teammate
-    set monitor-target target
+to do-monitoring ; if decided to monitor
+  ask workers with [monitored-this-tick?] [ ; "
+    let target choose-least-trusted-teammate ; " monitor least trusted teammate
+    set monitor-target target ; "
 
-    if target != nobody [
-      ask target [
+    if target != nobody [ ; "
+      ask target [ ; target updates count of times monitored by other agents
         set times-monitored-by-others times-monitored-by-others + 1
-      ]
-      update-trust-from-monitoring target
+      ] ; "
+      update-trust-from-monitoring target ; update trust
     ]
   ]
 end
 
-
-to-report choose-least-trusted-teammate
-  let out-links my-out-trust-links
-  if not any? out-links [ report nobody ]
-
-  let min-trust min [trust-value] of out-links
-  let candidate-links out-links with [trust-value = min-trust]
-  report [end2] of one-of candidate-links
+to-report choose-least-trusted-teammate ; to determine least trusted teammate
+  let out-links my-out-trust-links ; "
+  if not any? out-links [ report nobody ] ; "
+  let min-trust min [trust-value] of out-links ; "
+  let candidate-links out-links with [trust-value = min-trust] ; "
+  report [end2] of one-of candidate-links ; "
 end
 
-to update-trust-from-monitoring [target-agent]
-  let target-completed sum [completed-history] of target-agent
-  let target-successful sum [successful-history] of target-agent
-
-  ; If no completed tasks in last 3 ticks, do not update trust
-  if target-completed = 0 [
-    set skipped-trust-updates-no-data skipped-trust-updates-no-data + 1
-    stop
+to update-trust-from-monitoring [target-agent] ; trust updating
+  let target-completed sum [completed-history] of target-agent ; total target tasks completed in past 3 ticks
+  let target-successful sum [successful-history] of target-agent ; total target tasks completed successfully in past 3 ticks
+  if target-completed = 0 [ ; if no tasks completed in last 3 ticks, don't update trust
+    set skipped-trust-updates-no-data skipped-trust-updates-no-data + 1 ; "
+    stop 
   ]
-
-  let observed-performance 100 * (target-successful / target-completed)
-
-  let my-link trust-link-to target-agent
-  let old-trust [trust-value] of my-link
-  
-   ; Openness controls learning rate alpha
-  let alpha base-alpha + (openness / 100) * alpha-range
-
-  let gap observed-performance - old-trust
-
-  ; Extra negative penalty when monitored target is AI
-  if gap < 0 and [agent-type] of target-agent = "ai" [
-    set gap gap * ai-negative-penalty
+  let observed-performance 100 * (target-successful / target-completed) ; calculate target performance over past 3 ticks
+  let my-link trust-link-to target-agent ; set link to target agent
+  let old-trust [trust-value] of my-link ; set priors (initial trust if first time monitoring this agent)
+  let alpha base-alpha + (openness / 100) * alpha-range ; trait openness controls learning rate alpha
+  let gap observed-performance - old-trust ; consider difference in expected and observed progress
+  if gap < 0 and [agent-type] of target-agent = "ai" [ ; stronger negative penalty for ai mistakes
+    set gap gap * ai-negative-penalty ; "
   ]
-
-  ask my-link [
-    set trust-value clip 0 100 (old-trust + alpha * gap)
-    recolor-trust-link
+  ask my-link [ ; update trust value
+    set trust-value clip 0 100 (old-trust + alpha * gap) ; "
+    recolor-trust-link ; update interface
   ]
 end
 
@@ -249,56 +231,49 @@ end
 ; METRICS
 ;====================================================
 
-to update-global-metrics
-  set team-completed-tasks sum [completed-tasks] of workers
-  set team-successful-tasks sum [successful-tasks] of workers
-  set team-failed-tasks sum [failed-tasks] of workers
-
-  ifelse team-completed-tasks > 0 [
-    set team-success-rate 100 * (team-successful-tasks / team-completed-tasks)
+to update-global-metrics ; update metrics
+  set team-completed-tasks sum [completed-tasks] of workers ; "
+  set team-successful-tasks sum [successful-tasks] of workers ; "
+  set team-failed-tasks sum [failed-tasks] of workers ; "
+  ifelse team-completed-tasks > 0 [  ; "
+    set team-success-rate 100 * (team-successful-tasks / team-completed-tasks) ; "
   ] [
-    set team-success-rate 0
+    set team-success-rate 0 ; "
   ]
-
-  let human-ai-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "ai"]
-  let human-human-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "human"]
-  let ai-human-links trust-links with [[agent-type] of end1 = "ai" and [agent-type] of end2 = "human"]
-
- ifelse any? human-ai-links
-    [ set avg-human-to-ai-trust mean [trust-value] of human-ai-links ]
-    [ set avg-human-to-ai-trust 0 ]
-
-  ifelse any? human-human-links
-    [ set avg-human-to-human-trust mean [trust-value] of human-human-links ]
-    [ set avg-human-to-human-trust 0 ]
-
-  ifelse any? ai-human-links
-    [ set avg-ai-to-human-trust mean [trust-value] of ai-human-links ]
-    [ set avg-ai-to-human-trust 0 ]
-
-  ifelse any? trust-links
-    [ set avg-all-trust mean [trust-value] of trust-links ]
-    [ set avg-all-trust 0 ]
-
-  set total-monitoring-events sum [total-monitoring-events] of workers
+  let human-ai-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "ai"]  ; "
+  let human-human-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "human"]  ; "
+  let ai-human-links trust-links with [[agent-type] of end1 = "ai" and [agent-type] of end2 = "human"]  ; "
+ ifelse any? human-ai-links ; "
+    [ set avg-human-to-ai-trust mean [trust-value] of human-ai-links ] ; "
+    [ set avg-human-to-ai-trust 0 ] ; "
+  ifelse any? human-human-links ; "
+    [ set avg-human-to-human-trust mean [trust-value] of human-human-links ] ; "
+    [ set avg-human-to-human-trust 0 ] ; "
+  ifelse any? ai-human-links ; "
+    [ set avg-ai-to-human-trust mean [trust-value] of ai-human-links ] ; "
+    [ set avg-ai-to-human-trust 0 ] ; "
+  ifelse any? trust-links ; "
+    [ set avg-all-trust mean [trust-value] of trust-links ] ; "
+    [ set avg-all-trust 0 ] ; "
+  set total-monitoring-events sum [total-monitoring-events] of workers ; "
 end
 
 ;====================================================
 ; VISUAL HELPERS
 ;====================================================
 
-to recolor-trust-link
-  if trust-value < 33 [ set color red ]
-  if trust-value >= 33 and trust-value < 67 [ set color yellow ]
-  if trust-value >= 67 [ set color green ]
+to recolor-trust-link ; aesthetic of trust links in interface
+  if trust-value < 33 [ set color red ] ; visual representation of "low" trust
+  if trust-value >= 33 and trust-value < 67 [ set color yellow ] ; visual representation of "moderate" trust
+  if trust-value >= 67 [ set color green ] ; visual representation of "high" trust
 end
 
 ;====================================================
 ; REPORTERS / HELPERS
 ;====================================================
 
-to-report clip [lo hi x]
-  report max list lo (min list hi x)
+to-report clip [lo hi x] ; keeps variables within specified ranges
+  report max list lo (min list hi x) ; "
 end
 ]]></code>
   <widgets>
