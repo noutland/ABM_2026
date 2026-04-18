@@ -1225,7 +1225,7 @@ end
         </shape>
       </indicator>
     </shape>
-    <shape name="curved" curviness="1.0">
+    <shape name="curved" curviness="1.5">
       <lines>
         <line x="-0.2" visible="false">
           <dash value="0.0"></dash>
