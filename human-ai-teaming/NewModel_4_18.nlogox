@@ -77,11 +77,14 @@ to setup-workers ; begin agent initialization process
  let ai-agent one-of workers ; assigns one agent as ai
  ask ai-agent [ ; "
     set agent-type "ai" ; "
-    set color red ; "
+    set color gray ; "
+    set shape "computer" ; "
+    set size 7.5 ; "
   ]
  ask other workers with [self != ai-agent] [ ; assigns remaining 2 agents as humans
     set agent-type "human" ; "
     set color blue ; "
+    set size 7.5 ; "
   ]
  ask workers [ ; sample agent traits
     if agent-type = "human" [ ; "
@@ -115,6 +118,7 @@ to setup-trust-links ; begin trust link initialization process
       [agent-type] of end1 = "ai" and [agent-type] of end2 = "human" [ ; "
         set trust-value clip 0 100 (random-normal ai-human-trust-mean trust-sd) ; "
       ]
+      set shape "curved"
       set thickness 0.2 ; aesthetics 
       recolor-trust-link ; "
     ]
@@ -283,7 +287,7 @@ to-report clip [lo hi x] ; keeps variables within specified ranges
 end
 ]]></code>
   <widgets>
-    <view x="375" wrappingAllowedX="true" y="15" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
+    <view x="375" wrappingAllowedX="false" y="15" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="25" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
     <button x="165" y="30" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="96" display="go forever">go</button>
     <button x="95" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="go">go</button>
@@ -535,6 +539,30 @@ end
     <shape name="circle 2" rotatable="false" editableColorIndex="0">
       <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
       <circle x="30" y="30" marked="false" color="255" diameter="240" filled="true"></circle>
+    </shape>
+    <shape name="computer" rotatable="false" editableColorIndex="0">
+      <rectangle endX="195" startY="105" marked="false" color="255" endY="180" startX="105" filled="false"></rectangle>
+      <rectangle endX="210" startY="165" marked="true" color="-1920102913" endY="195" startX="90" filled="false"></rectangle>
+      <rectangle endX="240" startY="165" marked="true" color="-1920102913" endY="240" startX="75" filled="true"></rectangle>
+      <rectangle endX="225" startY="60" marked="false" color="255" endY="165" startX="90" filled="true"></rectangle>
+      <rectangle endX="225" startY="60" marked="true" color="-1920102913" endY="165" startX="90" filled="false"></rectangle>
+      <rectangle endX="120" startY="180" marked="true" color="-1920102913" endY="180" startX="105" filled="true"></rectangle>
+      <rectangle endX="210" startY="75" marked="false" color="878553599" endY="150" startX="105" filled="false"></rectangle>
+      <rectangle endX="120" startY="180" marked="false" color="878553599" endY="180" startX="105" filled="true"></rectangle>
+      <rectangle endX="105" startY="180" marked="false" color="255" endY="195" startX="90" filled="true"></rectangle>
+      <rectangle endX="135" startY="180" marked="false" color="255" endY="195" startX="120" filled="true"></rectangle>
+      <rectangle endX="165" startY="180" marked="false" color="255" endY="195" startX="150" filled="true"></rectangle>
+      <rectangle endX="195" startY="180" marked="false" color="255" endY="195" startX="180" filled="true"></rectangle>
+      <rectangle endX="225" startY="180" marked="false" color="255" endY="195" startX="210" filled="true"></rectangle>
+      <rectangle endX="105" startY="210" marked="false" color="255" endY="225" startX="90" filled="true"></rectangle>
+      <rectangle endX="135" startY="210" marked="false" color="255" endY="225" startX="120" filled="true"></rectangle>
+      <rectangle endX="165" startY="210" marked="false" color="255" endY="225" startX="150" filled="true"></rectangle>
+      <rectangle endX="195" startY="210" marked="false" color="255" endY="225" startX="180" filled="true"></rectangle>
+      <rectangle endX="225" startY="210" marked="false" color="255" endY="225" startX="210" filled="true"></rectangle>
+      <circle x="255" y="180" marked="true" color="-1920102913" diameter="30" filled="true"></circle>
+      <rectangle endX="270" startY="195" marked="false" color="255" endY="195" startX="270" filled="true"></rectangle>
+      <line endX="270" startY="180" marked="false" color="255" endY="195" startX="270"></line>
+      <line endX="285" startY="195" marked="false" color="255" endY="195" startX="255"></line>
     </shape>
     <shape name="cow" rotatable="false" editableColorIndex="0">
       <polygon color="-1920102913" filled="true" marked="true">
@@ -1194,6 +1222,28 @@ end
         <shape name="link direction" rotatable="true" editableColorIndex="0">
           <line endX="90" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
           <line endX="210" startY="150" marked="true" color="-1920102913" endY="180" startX="150"></line>
+        </shape>
+      </indicator>
+    </shape>
+    <shape name="curved" curviness="1.0">
+      <lines>
+        <line x="-0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+        <line x="0.0" visible="true">
+          <dash value="1.0"></dash>
+          <dash value="0.0"></dash>
+        </line>
+        <line x="0.2" visible="false">
+          <dash value="0.0"></dash>
+          <dash value="1.0"></dash>
+        </line>
+      </lines>
+      <indicator>
+        <shape name="link direction" rotatable="true" editableColorIndex="0">
+          <line endX="90" startY="150" marked="true" color="-1920102913" endY="210" startX="150"></line>
+          <line endX="210" startY="150" marked="true" color="-1920102913" endY="210" startX="150"></line>
         </shape>
       </indicator>
     </shape>
