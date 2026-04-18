@@ -2,106 +2,47 @@
 <model version="NetLogo 7.0.3" snapToGrid="true">
   <code><![CDATA[breed [workers worker] ; defines breed of turtles
 directed-link-breed [trust-links trust-link] ; one-way relationships
-                                             ; from "lens" agent
-                                             ; to "target" agent"
+                                             ; from "lens" agent 
+                                             ; to "target" agent" 
 
 globals [ ; model-level variables 
-  total-tasks ; count of tasks available at the beginning
-  tasks-completed ; count of tasks completed 
-                  ; includes corrected errors
-  errors-made ; count of tasks that resulted in errors
-              ; included corrected errors
-  tasks-failed ; count of tasks that ended in failure
-               ; when errors are not corrected
-  unassigned-tasks ; count of tasks not yet claimed
-  self-caught-errors ; count of errors caught before failure
-  task-workload ; progress required to complete one task 
-  help-speed-factor ; helping speeds things up
-  help-quality-factor ; helping reduces error rate
-  max-help-quality-bonus ; cap on benefits of 
-                         ; help-speed-factor and
-                         ; help-quality-factor
-  status-tolerance ; creates ranges for what counts as
-                   ; ahead, on-track, and behind
-  trust-learning-rate ; sensitivity parameter for trust updating
-                      ; larger = more responsive to new info
-                      ; smaller = more stable
-  human-ai-negative-cog-multiplier ; adjustment to how humans
-                                   ; differentially update ai trust
-                                   ; failures weighted more in
-                                   ; negative cognitive trust updating
-  human-ai-positive-affective-multiplier ; adjustment to how humans
-                                         ; below 1 = harder for humans
-                                         ; to increase affective trust 
-                                         ; in ai
-] ; end model-level variables
+  team-completed-tasks ; team-level count of total tasks completed
+  team-successful-tasks ; team-level count of total tasks succeesfully completed
+  team-failed-tasks ; team-level count of total tasks failed
+  team-success-rate ; team-level % of success / completed
+  avg-human-to-ai-trust ; mean trust of humans in ai
+  avg-human-to-human-trust ; mean trust of humans in humans
+  avg-ai-to-human-trust ; mean trust of ai in humans
+  avg-all-trust ; mean trust of all links
+  total-monitoring-events ; count of all monitoring actions 
+  skipped-trust-updates-no-data ; count of all monitoring skipped actions 
+]
 
 workers-own [ ; agent-level variables
-  agent-name ; text label identifying each agent
-  role ; worker type (i.e., human or ai)
-  home-patch ; agent's workspace (where direct work is completed)
-  guest-patch ; extra seat at each workspace for helping agents
-  base-ability ; stable competence level, assigned at setup
-  conscientiousness ; trait level conscientiousness
-  agreeableness ; trait level agreeableness
-  efficiency ; speed of task completion
-  task-ability ; task-specific competence
-  has-task? ; "true" = task in progress
-            ; "false" = no task in progress
-  current-progress ; progress on current task
-  current-task-age ; pace metric
-                   ; how long current task has been in-progress
-  current-restarts ; count of times task has been restarted 
-                   ; due to self-caught errors
-  current-help-quality-bonus ; current accuracy bonus 
-                             ; due to help received
-  current-status ; "ahead", "on-track", "behind"
-                 ; may also be "idle" or "done"
-  asked-help-on-current-task? ; whether agent requested help on
-                              ; current task
-  planned-action ; action for next move
-                 ; "keep-working", "ask-help", or "offer-help"
-  proposed-target ; agent worker proposes to help (pre-matching)
-                  ; "i'd like to help this agent"
-  matched-helper ; agent assigned to help this worker (post-matching) 
-                 ; "this agent is helping me"
-                 ; "nobody" if not receiving help
-  matched-target ; agent worker is helping (post-matching)
-                 ; "i am helping this person"
-                 ; "nobody" if not helping 
-  requested-help-this-tick? ; "true" =  requested help this tick
-                            ; "false" =  didn't request help this tick
-  received-help-this-tick? ; "true" = got help this tick
-                           ; "false" = didn't get help this tick
-  helped-someone-this-tick? ; "true" = helped someone this tick
-                            ; "false" = didn't help someone this tick
-  self-caught-error-this-tick? ; "true" = caught self-made error
-                               ; "false" = didn't make error
-                               ; or didn't self-catch error
-  task-failed-this-tick? ; "true" = didn't self-catch error
-                         ; "false" = didn't make error
-                         ; or self-caught error
-  task-succeeded-this-tick? ; whether a task was completed this tick
-  last-action ; most recent action
-  last-outcome ; most recent outcome
-  tasks-started ; count of total tasks this agent started
-  help-requests-made ; count of total help requests this agent has made
-  help-opportunities ; count of times helping was possible 
-  help-given ; count of times this agent provided help
-] ; end of agent-level variables
-
+  agent-type ; "human" or "ai"
+  ability ; probability of success (0-100)
+  efficiency ; rate of task progress each tick (>0)
+             ; (e.g., 1 = 1 task completed per tick)
+  conscientiousness ; trait big-5 conscientiousness (0-100)
+  openness ; trait big-5 openness to experience (0-100)
+  current-task-progress ; progress made on current task (0-1)
+  completed-tasks ; agent-level count of total tasks completed
+  successful-tasks ; agent-level count of total tasks succeesfully completed
+  failed-tasks ; agent-level count of total tasks failed
+  monitored-this-tick? ; "true" = yes
+  monitor-target ; target chosen to monitor
+  monitoring-probability ; likelihood of monitoring
+                         ; based on trait conscientiousness
+  total-monitoring-events ; count of times agent monitored another agent
+  times-monitored-by-others ; count of times agent was monitored
+  completed-history ; count of tasks completed in last tick
+  successful-history ; count of tasks successfully completed in last tick
+]
+  
 trust-links-own [ ; properties of each one-way relationship 
                   ; from "lens" agent to "target" agent
-  trust ; metric of overall trust
-        ; combines cognitive (competence-belief) and 
-        ; affective (team-belief)
-  competence-belief ; cognitive trust component
-                    ; does lens agent see target agent
-                    ; as capable and reliable?
-  team-belief ; affective trust component
-              ; does lens agent see target agent
-              ; as supportive and team-oriented?
-] ; end of properties of each one-way relationship
+  trust-value ; cognitive trust (0-100)
+]
 
 ; =========================================================
 ; SETUP
@@ -109,820 +50,257 @@ trust-links-own [ ; properties of each one-way relationship
 
 to setup ; begin model initialization process
   clear-all ; reset everything 
-  resize-world -16 16 -12 12 ; set view dimensions
-  setup-globals ; initialization (process below)
-  setup-space ; "
-  setup-workers ; "
-  setup-trust ; "
+  setup-workers ; initialization (process below)
+  setup-trust-links ; "
+  layout-team ; "
+  update-global-metrics ; "
   reset-ticks ; set ticks to 0
-end ; end model initialization process
-
-to setup-globals ; begin global variable initialization process
-  set total-tasks 150 ; count of total tasks
-  set unassigned-tasks total-tasks ; all tasks unassigned at setup
-  set tasks-completed 0 ; set initial values
-  set errors-made 0 ; "
-  set tasks-failed 0 ; "
-  set self-caught-errors 0 ; "
-  set task-workload 8 ; "
-  set help-speed-factor 0.5 ; "
-  set help-quality-factor 2 ; "
-  set max-help-quality-bonus 15 ; "
-  set status-tolerance 0.10 ; "
-  set trust-learning-rate 0.25 ; "
-  set human-ai-negative-cog-multiplier 1.5 ; "
-  set human-ai-positive-affective-multiplier 0.75 ; "
-end ; end global variable initialization process
-
-to setup-space ; begin view initialization sequence
-  ask patches [ ; view initialization
-    set pcolor gray + 4 ; "
-    set plabel "" ; "
-    set plabel-color black ; "
-  ] ; "
-
-  ask patches with [abs pxcor <= 2 and abs pycor <= 1] [ ; "
-    set pcolor brown + 1 ; " ; "
-  ] ; "
-
-  ask patch -11 8 ; create human 1's workspace
-  [ set pcolor brown - 1 set plabel "H1" ] ; "
-  ask patch -10 8 [ set pcolor brown + 1 ] ; "
-  ask patch -9 8  [ set pcolor gray + 2 set plabel "guest" ] ; "
-
-  ask patch -11 -8  ; create human 2's workspace
-  [ set pcolor brown - 1 set plabel "H2" ] ; "
-  ask patch -10 -8 [ set pcolor brown + 1 ] ; "
-  ask patch -9 -8  [ set pcolor gray + 2 set plabel "guest" ] ; "
-
-  ask patch 10 0 ; create ai's workspace
-  [ set pcolor brown - 1 set plabel "AI" ] ; "
-  ask patch 11 0 [ set pcolor brown + 1 ] ; "
-  ask patch 9 0  [ set pcolor gray + 2 set plabel "guest" ] ; "
-end ; end of view initialization sequence
-
-to setup-workers ; begin worker creation sequence
-  create-workers 1 [ ; human 1:
-                     ; create, label, and assign workspace 
-    set agent-name "H1" ; "
-    set role "human" ; "
-    set color green ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch -11 8 ; "
-    set guest-patch patch -9 8 ; "
-    initialize-worker ; "
-  ] ; "
-
-  create-workers 1 [ ; human 2:
-                     ; create, label, and assign workspace 
-    set agent-name "H2" ; "
-    set role "human" ; "
-    set color green ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch -11 -8 ; "
-    set guest-patch patch -9 -8 ; "
-    initialize-worker ; "
-  ] ; "
-
-  create-workers 1 [ ; ai:
-                     ; create, label, and assign workspace 
-    set agent-name "AI" ; "
-    set role "ai" ; "
+end
+  
+to setup-workers ; begin agent initialization process
+  create-workers 3 [ ; "
+    set shape "person" ; "
+    set size 2 ; "
+    set color gray ; "
+    set current-task-progress 0 ; "
+    set completed-tasks 0 ; "
+    set successful-tasks 0 ; "
+    set failed-tasks 0 ; "
+    set monitored-this-tick? false ; "
+    set monitor-target nobody ; "
+    set total-monitoring-events 0 ; "
+    set times-monitored-by-others 0 ; "
+    set completed-history [] ; "
+    set successful-history [] ; "
+  ]
+ let ai-agent one-of workers ; create 1 ai agent
+ ask ai-agent [ ; "
+    set agent-type "ai" ; "
     set color red ; "
-    set shape "circle" ; "
-    set size 1.5 ; "
-    set home-patch patch 10 0 ; "
-    set guest-patch patch 9 0 ; "
-    initialize-worker ; "
-  ] ; "
+  ]
+ ask other workers with [self != ai-agent] [ ; create 2 human agents
+    set agent-type "human" ; "
+    set color blue ; "
+  ]
+ ask workers [ ; sample agent traits
+    if agent-type = "human" [ ; "
+      set ability clip 0 100 (random-normal human-ability-mean ability-sd) ; "
+      set efficiency max list 0.1 (random-normal human-efficiency-mean efficiency-sd) ; "
+    ]
+    if agent-type = "ai" [ ; " 
+      set ability clip 0 100 (random-normal ai-ability-mean ability-sd) ; "
+      set efficiency max list 0.1 (random-normal ai-efficiency-mean efficiency-sd) ; "
+    ]
+    set conscientiousness clip 0 100 (random-normal conscientiousness-mean conscientiousness-sd) ; "
+    set openness clip 0 100 (random-normal openness-mean openness-sd) ; "
+    set monitoring-probability min-monitor + (conscientiousness / 100) * (max-monitor - min-monitor) ; "
+  ]
+end
 
-  ask workers [ ; assign initial placement and actions
-    move-to home-patch ; "
-    set label agent-name ; "
-    set label-color black ; "
-    set planned-action "keep-working" ; "
-  ] ; "
-end ; end worker creation sequence
-
-to initialize-worker ; start worker initialization sequence
-  if role = "human" [ ; assign human trait-level variables
-    set base-ability 60 + random 31 ; "
-    set conscientiousness 60 + random 31 ; "
-    set agreeableness 60 + random 31 ; "
-    set efficiency 1 ; "
-  ] ; "
-
-  if role = "ai" [ ; assign ai trait-level variables
-    set base-ability 40 + random 41 ; "
-    set conscientiousness 60 + random 21 ; "
-    set agreeableness 60 + random 21 ; "
-    set efficiency 2 ; "
-  ] ; "
-
-  set task-ability 0 ; set initial values for state-level variables
-  set has-task? false ; "
-  set current-progress 0 ; "
-  set current-task-age 0 ; "
-  set current-restarts 0 ; "
-  set current-help-quality-bonus 0 ; "
-  set current-status "idle" ; "
-  set asked-help-on-current-task? false ; "
-
-  set planned-action "keep-working" ; set initial values for 
-                                    ; action and outcome monitors
-  set proposed-target nobody ; "
-  set matched-helper nobody ; "
-  set matched-target nobody ; "
-
-  set requested-help-this-tick? false ; "
-  set received-help-this-tick? false ; "
-  set helped-someone-this-tick? false ; "
-  set self-caught-error-this-tick? false ; "
-  set task-failed-this-tick? false ; "
-  set task-succeeded-this-tick? false ; "
-
-  set last-action "" ; "
-  set last-outcome "none" ; "
-  set tasks-started 0 ; "
-  set help-requests-made 0 ; "
-  set help-opportunities 0 ; "
-  set help-given 0 ; "
-end ; end worker initialization sequence
-
-to setup-trust ; begin trust initialization sequence
-  ask workers [ ; create trust links 
+to setup-trust-links ; begin trust link initialization process
+  ask workers [ ; "
     create-trust-links-to other workers [ ; "
-      let lens end1 ; "
-      let target end2 ; "
+      if ; human to human trust
+      [agent-type] of end1 = "human" and [agent-type] of end2 = "human" [ ; "
+        set trust-value clip 0 100 (random-normal human-human-trust-mean trust-sd) ; "
+      ]
+      if ; human to ai trust
+      [agent-type] of end1 = "human" and [agent-type] of end2 = "ai" [ ; "
+        set trust-value clip 0 100 (random-normal human-ai-trust-mean trust-sd) ; "
+      ]
+      if ; ai to human trust
+      [agent-type] of end1 = "ai" and [agent-type] of end2 = "human" [ ; "
+        set trust-value clip 0 100 (random-normal ai-human-trust-mean trust-sd) ; "
+      ]
+      set thickness 0.2 ; aesthetics 
+      recolor-trust-link ; "
+    ]
+  ]
+end
 
-      if ([role] of lens = "human") ; set cognitive trust beliefs
-      and ([role] of target = "human") [ ; "
-        set competence-belief 60 ; "
-      ] ; "
-      if ([role] of lens = "human") ; "
-      and ([role] of target = "ai") [ ; "
-        set competence-belief 40 ; "
-      ] ; "
-      if ([role] of lens = "ai") ; "
-      and ([role] of target = "human") [ ; "
-        set competence-belief 50 ; "
-      ] ; "
-      if ([role] of lens = "ai") ; " 
-      and ([role] of target = "ai") [ ; "
-        set competence-belief 50 ; "
-      ] ; "
-      if ([role] of lens = "human") ; set affective trust beliefs
-      and ([role] of target = "human") [ ; "
-        set team-belief 60 ; "
-      ] ; "
-      if ([role] of lens = "human") ; "
-      and ([role] of target = "ai") [ ; "
-        set team-belief 30 ; "
-      ] ; "
-      if ([role] of lens = "ai") ; "
-      and ([role] of target = "human") [ ; "
-        set team-belief 50 ; "
-      ] ; "
-      if ([role] of lens = "ai") ; "
-      and ([role] of target = "ai") [ ; "
-        set team-belief 50 ; "
-      ] ; "
-      set trust ; set composite trust beliefs
-      (competence-belief + team-belief) / 2 ; "
-      hide-link ; "
-    ] ; "
-  ] ; "
-end ; end trust initialization sequence
+to layout-team ; view initialization
+  ask workers [ setxy random-xcor random-ycor ] ; "
+  layout-circle sort workers max-pxcor * 0.6 ; "
+end
 
 ; =========================================================
 ; MAIN LOOP
 ; =========================================================
 
 to go ; process for each tick
-  if model-finished? [ stop ] ; stop if end conditions met
- 
-  reset-tick-flags ; sub-process (see below)
-  resolve-help-matches ; "
-  claim-tasks-for-workers ; "
-  age-active-tasks ; "
-  ask workers [ perform-work ] ; "
-  ask workers [ update-status ] ; "
-  update-all-trust ; "
-  ask workers [ choose-next-action ] ; "
+  do-work ; sub-process (see below)
+  decide-monitoring ; sub-process (see below)
+  do-monitoring ; sub-process (see below)
+  update-global-metrics ; sub-process (see below)
   tick ; move time forward 1 step
-  if model-finished? [ stop ] ; stop if end conditions met
-end ; end of process for each tick 
-
-; =========================================================
-; TICK PHASES
-; =========================================================
-
-to reset-tick-flags ; begin sequence to reset 1-tick metrics
-  ask workers [ ; "
-    set proposed-target nobody ; "
-    set matched-helper nobody ; "
-    set matched-target nobody ; "
-    set requested-help-this-tick? false ; "
-    set received-help-this-tick? false ; "
-    set helped-someone-this-tick? false ; "
-    set self-caught-error-this-tick? false ; "
-    set task-failed-this-tick? false ; "
-    set task-succeeded-this-tick? false ; "
-  ] ; "
-end ; end sequence to reset 1-tick metrics
-
-to resolve-help-matches ; begin sequence to match agents 
-                        ; asking for and offering help
-  let requesters workers with [planned-action = "ask-help" and has-task?] ; "
-  let offerers workers with [planned-action = "offer-help"] ; "
-  ask requesters [ ; update metrics
-    set requested-help-this-tick? true ; "
-    if not asked-help-on-current-task? [ ; "
-      set help-requests-made help-requests-made + 1 ; "
-      set asked-help-on-current-task? true ; "
-    ] ; "
-  ] ; "
-  if (not any? requesters) or (not any? offerers) [ ; stop if no help
-    stop ; "
-  ] ; "
-  ask offerers [ ; agents offering help pick who they most want to help
-    let target best-requester-for self requesters ; "
-    if target != nobody [ ; "
-      set proposed-target target ; "
-    ] ; "
-  ] ; "
-  ask requesters [ ; agent wanting help picks who will help them
-    let offers other workers with [proposed-target = myself] ; "
-    if any? offers [ ; "
-      let best-helper best-helper-for self offers ; "
-      if best-helper != nobody [ ; "
-        set matched-helper best-helper ; "
-        set received-help-this-tick? true ; "
-        ask best-helper [ ; "
-          set matched-target myself ; "
-          set helped-someone-this-tick? true ; "
-        ] ; "
-      ] ; "
-    ] ; "
-  ] ; "
-end ; end sequence to match agents asking for and offering help
-
-to claim-tasks-for-workers ; begin task claiming sequence
-  ask workers with [matched-target = nobody] [ ; only those not helping
-    if (not has-task?) and (unassigned-tasks > 0) [ ; only those 
-                                                    ; without a task
-                                                    ; and unclaimed  
-                                                    ; tasks remain
-      claim-next-task ; then claim a new task
-    ] ; "
-  ] ; "
-end ; begin task claiming sequence
-
-to age-active-tasks ; begin task pace tracking sequence
-  ask workers with [has-task?] [ ; only if agents have a task
-    set current-task-age current-task-age + 1 ; increase time spent
-                                              ; on current task
-  ] ; "
-end ; end of task pace tracking sequence
-
-to perform-work ; begin behavior sequence
-  ;; helper spends the tick helping and makes no progress on own task
-  if matched-target != nobody [ ; help other agent
-    move-to [guest-patch] of matched-target ; "
-    set help-given help-given + 1 ; update metric
-    set last-action "help" ; "
-    set last-outcome "none" ; "
-    stop ; "
-  ] ; "
-
-  if has-task? [ ; do own work
-    move-to home-patch ; "
-    let progress-gained efficiency ; "
-
-    if matched-helper != nobody [ ; " getting help
-      let helper-eff [efficiency] of matched-helper ; "
-      set progress-gained ; "
-      progress-gained + (help-speed-factor * helper-eff) ; "
-      set current-help-quality-bonus clamp ; "
-      (current-help-quality-bonus + ; "
-        (help-quality-factor * helper-eff)) ; "
-      0 max-help-quality-bonus ; "
-    ] ; "
-
-    if matched-helper != nobody [ ; update last action metrics
-      set last-action "work-with-help" ; "
-    ] ; "
-    if (matched-helper = nobody) ; "
-    and (planned-action = "ask-help") [ ; "
-      set last-action "ask-help" ; "
-    ] ; "
-    if (matched-helper = nobody) ; "
-    and (planned-action != "ask-help") [ ; "
-      set last-action "work" ; "
-    ] ; "
-
-    set current-progress ; update current progress metric
-    current-progress + progress-gained ; "
-
-    if current-progress >= task-workload [ ; if enough time spent
-                                           ; on task, begin process
-                                           ; for task outcome
-      resolve-task-completion ; "
-    ] ; "
-
-    if (not task-succeeded-this-tick?) ; if still working, don't
-                                       ; update outcome
-    and (not task-failed-this-tick?) ; "
-    and (not self-caught-error-this-tick?) [ ; "
-      set last-outcome "none" ; "
-    ] ; "
-    stop ; "
-  ] ; "
-
-  move-to home-patch ; i need to check what this is doing
-  if planned-action = "offer-help" [ ; "
-    set last-action "offer-help" ; "
-  ] ; "
-  if planned-action != "offer-help" [ ; "
-    set last-action "idle" ; "
-  ] ; "
-  set last-outcome "none" ; "
-end ; end behavior sequence
-
-; =========================================================
-; TASK LOGIC
-; =========================================================
-
-to claim-next-task ; begin task claim sequence
-  if unassigned-tasks <= 0 [ stop ] ; only if no current task
-  set has-task? true ; take new task
-  set current-progress 0 ; reset progress and metrics
-  set current-task-age 0 ; "
-  set current-restarts 0 ; "
-  set current-help-quality-bonus 0 ; "
-  set task-ability draw-task-ability base-ability role ; "
-  set asked-help-on-current-task? false ; "
-
-  set tasks-started tasks-started + 1 ; "
-  set unassigned-tasks unassigned-tasks - 1 ; "
-end ; end task claim sequence
-
-to resolve-task-completion ; begin task outcome sequence
-  let effective-ability clamp ; final probability of success
-                              ; on current ask, including help
-                              ; bonus, capped at 100
-  (task-ability + current-help-quality-bonus) 0 100 ; "
-
-  ifelse ; if random draw 0-100 if less than effective-ability,
-         ; task succeeds
-  (random-float 100 < effective-ability) [ 
-    ;; success
-    set tasks-completed tasks-completed + 1
-    set task-succeeded-this-tick? true
-    set last-outcome "success"
-    clear-current-task ; move on to next task
-
-  ] [ ; if not, an error has occurred
-    set errors-made errors-made + 1 ; update metric
-   
-    ifelse ; if high conscientiousness, can catch error
-    (random-float 100 < conscientiousness) [ ; "
-      set self-caught-errors self-caught-errors + 1 ; update metric
-      set self-caught-error-this-tick? true ; "
-      set last-outcome "restart" ; "
-      set current-progress 0 ; "
-      set current-task-age 0 ; "
-      set current-restarts current-restarts + 1 ; "
-      set current-help-quality-bonus 0 ; "
-    ] [ ; if error is not caught, ends in failure
-      set tasks-failed tasks-failed + 1 ; update metric
-      set task-failed-this-tick? true ; "
-      set last-outcome "failed" ; "
-      clear-current-task ; "
-    ] ; "
-  ] ; "
-end ; end task outcome sequence
-
-to clear-current-task ; begin clear task sequence
-  set has-task? false ; only if they have a task
-  set task-ability 0 ; update metrics
-  set current-progress 0 ; "
-  set current-task-age 0 ; "
-  set current-restarts 0 ; "
-  set current-help-quality-bonus 0 ; "
-  set asked-help-on-current-task? false ; "
-end ; end clear task sequence
-
-to-report draw-task-ability [base role-name] ; task ability
-  let raw round random-normal base 8 ; draws a number from a 
-                                     ; normal distribution 
-                                     ; centered at base, SD = 8
-
-  if role-name = "human" [ ; restricted range
-    report clamp raw 60 90 ; "
-  ] ; "
-
-  if role-name = "ai" [
-    report clamp raw 40 80 ; "
-  ] ; "
-
-  report clamp raw 0 100 ; "
-end ; end task ability sequence
-
-; =========================================================
-; STATUS + DECISION RULES
-; =========================================================
-
-to update-status ; begin agent status update sequence
-                 ; determines "ahead", "behind", and 
-                 ; "on-track"
-  if not has-task? [ ; only if no task
-    ifelse any-work-remaining? [ ; team has work to do
-      set current-status "idle" ; update metric
-    ] [ ; if no work to do
-      set current-status "done" ; status = done
-    ] ; "
-    stop ; "
-  ] ; "
-
-  let expected-progress ; progress expected, based on
-                        ; actual and expected pace 
-  min list task-workload (current-task-age * efficiency) ; "
-  let tolerance ; band around expected progress
-  (status-tolerance * task-workload) ; "
-
-  if ; ahead condition requirements
-  current-progress > (expected-progress + tolerance) [ ; "
-    set current-status "ahead" ; "
-    stop ; "
-  ] ; "
-
-  if ; behind condition requirements
-  current-progress < (expected-progress - tolerance) [ ; "
-    set current-status "behind" ; "
-    stop ; "
-  ] ; "
-
-  set current-status "on-track" ; otherwise, count as on-track
-end ; end agent status update sequence
-
-to choose-next-action ; begin choose next action sequence
-  if has-help-opportunity? [ ; update metric 
-    set help-opportunities help-opportunities + 1 ; "
-  ] ; "
-
-  if not has-task? [ ; if no current task
-    if unassigned-tasks > 0 [ ; and unclaimed tasks remain
-      set planned-action "keep-working" ; plan to continue working
-      stop ; "
-    ] ; "
-
-    if any? ; offer help if no unassigned tasks left 
-            ; and teammate is behind 
-    other workers with [current-status = "behind"] [ ; "
-      set planned-action "offer-help" ; "
-      stop ; "
-    ] ; "
-
-    if ; if no new tasks remain, optionally help an on-track teammate
-       ; depending on agent characteristics
-    (any? other workers with [current-status = "on-track"]) ; "
-    and discretionary-help? [ ; "
-      set planned-action "offer-help" ; "
-      stop ; "
-    ] ; "
-
-    set planned-action "keep-working" ; if none above apply
-    stop ; "
-  ] ; "
-
-  let ahead-teammates ; label teammates who are "ahead"
-  other workers with [current-status = "ahead"] ; "
-  let ontrack-teammates ; label teammates who are "on-track"
-  other workers with [current-status = "on-track"] ; "
-  let behind-teammates ; label teammates who are "behind"
-  other workers with [current-status = "behind"] ; "
-
-  if current-status = "behind" [ ; action if behind
-    if any? ; "
-    other workers with ; "
-    [member? current-status (list "on-track" "ahead")] [ ; "
-      set planned-action "ask-help" ; "
-      stop ; "
-    ] ; "
-    set planned-action "keep-working" ; "
-    stop ; "
-  ] ; "
-
-  if current-status = "on-track" [ ; decision rules for on-track agent
-    if (any? behind-teammates) and discretionary-help? [ ; "
-      set planned-action "offer-help" ; offer help if others are behind and 
-                                      ; i'm willing to help
-      stop ; "
-    ] ; "
-
-    if any? ahead-teammates [ ; find ahead teammate worker trusts for competence
-      let trusted-helper best-trusted-helper ahead-teammates ; "
-      if ; ask for help if trusted ahead teammate is perceived to be more competent 
-      (trusted-helper != nobody) ; "
-      and (task-ability < competence-belief-from self trusted-helper) [ ; "
-        set planned-action "ask-help" ; "
-        stop ; "
-      ] ; "
-    ] ; "
-
-    set planned-action "keep-working" ; otherwise, keep working
-    stop ; "
-  ] ; "
-
-  if current-status = "ahead" [ ; if ahead 
-    if any? behind-teammates [ ; offer to any behind
-      set planned-action "offer-help" ; "
-      stop ; "
-    ] ; "
-
-    if ; may offer help to on-track
-    (any? ontrack-teammates) and discretionary-help? [ ; "
-      set planned-action "offer-help" ; "
-      stop ; "
-    ] ; "
-
-    set planned-action "keep-working" ; otherwise, keep working
-    stop ; "
-  ] ; "
-
-  set planned-action "keep-working" ; "
-end ; end choose next action sequence
-
-
-; EB stopping point 3/14 
-
-to-report has-help-opportunity?
-  if (not has-task?) and (unassigned-tasks = 0) and any? other workers with [has-task?] [
-    report true
-  ]
-
-  if (current-status = "ahead") and any? other workers with [member? current-status (list "behind" "on-track")] [
-    report true
-  ]
-
-  if (current-status = "on-track") and any? other workers with [current-status = "behind"] [
-    report true
-  ]
-
-  report false
 end
 
-to-report discretionary-help?
-  let mean-team-belief 0
-  if any? my-out-links [
-    set mean-team-belief mean [team-belief] of my-out-links
-  ]
+;;;;; --- pick up on commenting from here --- ;;;;;
+;====================================================
+; WORK
+;====================================================
 
-  report (agreeableness >= 80) or (agreeableness > (mean-team-belief + 15))
-end
+to do-work
+  ask workers [
+    set monitored-this-tick? false
+    set monitor-target nobody
 
-; =========================================================
-; MATCHING HELPERS / REQUESTERS
-; =========================================================
+    let completed-this-tick 0
+    let successful-this-tick 0
 
-to-report best-helper-for [requester helper-set]
-  if not any? helper-set [ report nobody ]
-  report max-one-of helper-set [
-    competence-belief-from requester self
-  ]
-end
+    ; Add progress based on efficiency
+    set current-task-progress current-task-progress + efficiency
 
-to-report best-trusted-helper [candidate-set]
-  if not any? candidate-set [ report nobody ]
-  let requester self
-  report max-one-of candidate-set [
-    competence-belief-from requester self
-  ]
-end
-
-to-report best-requester-for [helper requester-set]
-  if not any? requester-set [ report nobody ]
-  report max-one-of requester-set [
-    requester-choice-score self helper
-  ]
-end
-
-to-report requester-choice-score [requester helper]
-  let severity 0
-  if [current-status] of requester = "behind" [ set severity 2 ]
-  if [current-status] of requester = "on-track" [ set severity 1 ]
-
-  let shortfall progress-shortfall-of requester
-  report (1000 * severity) + shortfall + (0.01 * team-belief-from helper requester)
-end
-
-to-report progress-shortfall-of [agent]
-  if not [has-task?] of agent [ report 0 ]
-
-  let expected-progress min list task-workload ([current-task-age] of agent * [efficiency] of agent)
-  let shortfall expected-progress - [current-progress] of agent
-  report max list 0 shortfall
-end
-
-; =========================================================
-; TRUST UPDATING
-; =========================================================
-
-to update-all-trust
-  ask trust-links [
-    let lens end1
-    let target end2
-
-    let cog-delta cognitive-delta lens target
-    let aff-delta affective-delta lens target
-
-    ;; humans judge AI more harshly on competence failures,
-    ;; and update affective trust upward more slowly.
-    if ([role] of lens = "human") and ([role] of target = "ai") [
-      if cog-delta < 0 [
-        set cog-delta cog-delta * human-ai-negative-cog-multiplier
-      ]
-      if aff-delta > 0 [
-        set aff-delta aff-delta * human-ai-positive-affective-multiplier
+    ; Allow multiple task completions in one tick if efficiency is high enough
+    while [current-task-progress >= 1] [
+      set current-task-progress current-task-progress - 1
+      set completed-this-tick completed-this-tick + 1
+      set completed-tasks completed-tasks + 1
+ifelse (random-float 100 < ability) [
+        set successful-this-tick successful-this-tick + 1
+        set successful-tasks successful-tasks + 1
+      ] [
+        set failed-tasks failed-tasks + 1
       ]
     ]
 
-    set competence-belief clamp (competence-belief + (trust-learning-rate * cog-delta)) 0 100
-    set team-belief clamp (team-belief + (trust-learning-rate * aff-delta)) 0 100
-    set trust (competence-belief + team-belief) / 2
-  ]
-end
+    ; Store rolling 3-tick history
+    set completed-history lput completed-this-tick completed-history
+    set successful-history lput successful-this-tick successful-history
 
-to-report cognitive-delta [lens target]
-  let delta 0
-
-  ;; status signal
-  if [current-status] of target = "ahead" [
-    set delta delta + 1.0
-  ]
-
-  if [current-status] of target = "on-track" [
-    set delta delta + 0.5
-  ]
-
-  if [current-status] of target = "behind" [
-    ifelse [helped-someone-this-tick?] of target [
-      set delta delta - 0.25
-    ] [
-      set delta delta - 0.75
+  if length completed-history > 3 [
+      set completed-history but-first completed-history
+    ]
+    if length successful-history > 3 [
+      set successful-history but-first successful-history
     ]
   ]
-
-  ;; help-seeking / help-giving signals
-  if [requested-help-this-tick?] of target [
-    set delta delta - 1.5
-  ]
-
-  if [matched-target] of lens = target [
-    set delta delta - 2.0
-  ]
-
-  if ([matched-helper] of lens = target) and (not [self-caught-error-this-tick?] of lens) and (not [task-failed-this-tick?] of lens) [
-    set delta delta + 2.0
-  ]
-
-  ;; error / outcome signals
-  if [self-caught-error-this-tick?] of target [
-    set delta delta - 2.5
-  ]
-
-  if [task-failed-this-tick?] of target [
-    set delta delta - 6.0
-  ]
-
-  if [task-succeeded-this-tick?] of target [
-    set delta delta + 0.5
-  ]
-
-  report delta
 end
 
-to-report affective-delta [lens target]
-  let delta 0
+;====================================================
+; MONITORING
+;====================================================
 
-  if [matched-helper] of lens = target [
-    set delta delta + 4.0
+to decide-monitoring
+  ask workers [
+    if random-float 1 < monitoring-probability [
+      set monitored-this-tick? true
+      set total-monitoring-events total-monitoring-events + 1
+    ]
   ]
-  if ([matched-helper] of lens != target) and [helped-someone-this-tick?] of target [
-    set delta delta + 1.5
-  ]
-
-  if needs-help-often? target [
-    set delta delta - 1.5
-  ]
-
-  if rarely-helps-when-able? target [
-    set delta delta - 1.5
-  ]
-
-  report delta
 end
 
-to-report needs-help-often? [agent]
-  if [tasks-started] of agent < 3 [ report false ]
-  report (([help-requests-made] of agent) / ([tasks-started] of agent)) > 0.50
+to do-monitoring
+  ask workers with [monitored-this-tick?] [
+    let target choose-least-trusted-teammate
+    set monitor-target target
+
+    if target != nobody [
+      ask target [
+        set times-monitored-by-others times-monitored-by-others + 1
+      ]
+      update-trust-from-monitoring target
+    ]
+  ]
 end
 
-to-report rarely-helps-when-able? [agent]
-  if [help-opportunities] of agent < 3 [ report false ]
-  report (([help-given] of agent) / ([help-opportunities] of agent)) < 0.25
+
+to-report choose-least-trusted-teammate
+  let out-links my-out-trust-links
+  if not any? out-links [ report nobody ]
+
+  let min-trust min [trust-value] of out-links
+  let candidate-links out-links with [trust-value = min-trust]
+  report [end2] of one-of candidate-links
 end
 
-to-report competence-belief-from [lens target]
-  let edge [out-trust-link-to target] of lens
-  ifelse edge != nobody [
-    report [competence-belief] of edge
+to update-trust-from-monitoring [target-agent]
+  let target-completed sum [completed-history] of target-agent
+  let target-successful sum [successful-history] of target-agent
+
+  ; If no completed tasks in last 3 ticks, do not update trust
+  if target-completed = 0 [
+    set skipped-trust-updates-no-data skipped-trust-updates-no-data + 1
+    stop
+  ]
+
+  let observed-performance 100 * (target-successful / target-completed)
+
+  let my-link trust-link-to target-agent
+  let old-trust [trust-value] of my-link
+  
+   ; Openness controls learning rate alpha
+  let alpha base-alpha + (openness / 100) * alpha-range
+
+  let gap observed-performance - old-trust
+
+  ; Extra negative penalty when monitored target is AI
+  if gap < 0 and [agent-type] of target-agent = "ai" [
+    set gap gap * ai-negative-penalty
+  ]
+
+  ask my-link [
+    set trust-value clip 0 100 (old-trust + alpha * gap)
+    recolor-trust-link
+  ]
+end
+
+;====================================================
+; METRICS
+;====================================================
+
+to update-global-metrics
+  set team-completed-tasks sum [completed-tasks] of workers
+  set team-successful-tasks sum [successful-tasks] of workers
+  set team-failed-tasks sum [failed-tasks] of workers
+
+  ifelse team-completed-tasks > 0 [
+    set team-success-rate 100 * (team-successful-tasks / team-completed-tasks)
   ] [
-    report 0
+    set team-success-rate 0
   ]
+
+  let human-ai-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "ai"]
+  let human-human-links trust-links with [[agent-type] of end1 = "human" and [agent-type] of end2 = "human"]
+  let ai-human-links trust-links with [[agent-type] of end1 = "ai" and [agent-type] of end2 = "human"]
+
+ ifelse any? human-ai-links
+    [ set avg-human-to-ai-trust mean [trust-value] of human-ai-links ]
+    [ set avg-human-to-ai-trust 0 ]
+
+  ifelse any? human-human-links
+    [ set avg-human-to-human-trust mean [trust-value] of human-human-links ]
+    [ set avg-human-to-human-trust 0 ]
+
+  ifelse any? ai-human-links
+    [ set avg-ai-to-human-trust mean [trust-value] of ai-human-links ]
+    [ set avg-ai-to-human-trust 0 ]
+
+  ifelse any? trust-links
+    [ set avg-all-trust mean [trust-value] of trust-links ]
+    [ set avg-all-trust 0 ]
+
+  set total-monitoring-events sum [total-monitoring-events] of workers
 end
 
-to-report team-belief-from [lens target]
-  let edge [out-trust-link-to target] of lens
-  ifelse edge != nobody [
-    report [team-belief] of edge
-  ] [
-    report 0
-  ]
+;====================================================
+; VISUAL HELPERS
+;====================================================
+
+to recolor-trust-link
+  if trust-value < 33 [ set color red ]
+  if trust-value >= 33 and trust-value < 67 [ set color yellow ]
+  if trust-value >= 67 [ set color green ]
 end
 
-; =========================================================
-; COMPATIBILITY HELPERS
-; =========================================================
+;====================================================
+; REPORTERS / HELPERS
+;====================================================
 
-to-report clamp [x low high]
-  report max list low (min list high x)
+to-report clip [lo hi x]
+  report max list lo (min list hi x)
 end
-
-; =========================================================
-; REPORTERS
-; =========================================================
-
-to-report percent-tasks-complete
-  if total-tasks = 0 [ report 0 ]
-  report 100 * tasks-completed / total-tasks
-end
-
-to-report initial-error-rate
-  let resolved-attempts tasks-completed + tasks-failed + self-caught-errors
-  if resolved-attempts = 0 [ report 0 ]
-  report 100 * errors-made / resolved-attempts
-end
-
-to-report task-failure-rate
-  let terminal-attempts tasks-completed + tasks-failed
-  if terminal-attempts = 0 [ report 0 ]
-  report 100 * tasks-failed / terminal-attempts
-end
-
-to-report tasks-rescued
-  ;; compatibility shim: now means self-caught / restarted errors
-  report self-caught-errors
-end
-
-to-report average-trust
-  ifelse any? trust-links [
-    report mean [trust] of trust-links
-  ] [
-    report 0
-  ]
-end
-
-to-report average-cognitive-trust
-  ifelse any? trust-links [
-    report mean [competence-belief] of trust-links
-  ] [
-    report 0
-  ]
-end
-
-to-report average-affective-trust
-  ifelse any? trust-links [
-    report mean [team-belief] of trust-links
-  ] [
-    report 0
-  ]
-end
-
-to-report tasks-remaining
-  report unassigned-tasks + count workers with [has-task?]
-end
-
-to-report any-work-remaining?
-  report (tasks-completed + tasks-failed) < total-tasks
-end
-
-to-report model-finished?
-  report ((tasks-completed + tasks-failed) >= total-tasks)
-end]]></code>
+]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-12" height="329" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="12" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="25" y="30" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
