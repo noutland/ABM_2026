@@ -335,39 +335,104 @@ end
   </widgets>
   <info>## WHAT IS IT?
 
-(a general understanding of what the model is trying to show or explain)
+This model examines cognitive trust development in a small human-AI team. Each team contains 3 agents: 2 humans and 1 AI. Agents differ in ability, efficiency, conscientiousness, openness, and initial trust in teammates.
+
+The model asks: under what conditions can human-AI teams overcome barriers that prevent or delay the development of human cognitive trust in AI teammates?
+
+The main barriers represented are:
+
+- lower initial trust in AI than in humans
+- stronger negative reactions to poor AI performance
+- potentially lower AI ability than human ability
+
+Trust is directed, so each agent can hold a different level of trust toward each teammate.
 
 ## HOW IT WORKS
 
-(what rules the agents use to create the overall behavior of the model)
+Each run contains one fixed team. The team stays the same until setup is pressed again.
+
+At each tick:
+
+1. agents work on tasks
+2. completed tasks are evaluated as success or failure based on ability
+3. agents may monitor a teammate
+4. monitoring agents update trust based on the target’s recent performance
+
+Efficiency determines how quickly agents accumulate task progress. When progress reaches 1 or more, one or more tasks are completed. Each completed task is checked separately for success or failure. Failed tasks are not reworked.
+
+Monitoring probability is based on conscientiousness. Higher conscientiousness means a higher chance of monitoring on a tick. Agents do not monitor until at least 3 ticks of history exist.
+
+When an agent monitors, it monitors the teammate it currently trusts least. If there is a tie, the target is chosen randomly. Monitoring uses the target’s performance over the last 3 ticks. If the target completed no tasks in that window, observed performance is treated as 0.
+
+Trust updates only when monitoring occurs. Current trust serves as the anchor, and trust shifts toward observed performance. Openness increases the weight placed on new information. Negative evidence about AI agents produces a larger decrease in trust than equivalent negative evidence about human agents.
+
+Trust is bounded from 0 to 100.
 
 ## HOW TO USE IT
 
-(how to use the model, including a description of each of the items in the Interface tab)
+Press setup to initialize a new team. Press go to run the model.
+
+The main sliders control the distributions and trust-updating process:
+
+- human-ability-mean, ai-ability-mean, ability-sd: determine the distribution of ability, which affects the probability of task success.
+- human-efficiency-mean, ai-efficiency-mean, efficiency-sd: determine the distribution of efficiency, which affects how quickly agents complete tasks.
+- conscientiousness-mean, conscientiousness-sd: determine the distribution of conscientiousness, which affects monitoring probability.
+- openness-mean, openness-sd: determine the distribution of openness, which affects how strongly trust updates in response to new information.
+- human-human-trust-mean, human-ai-trust-mean, ai-human-trust-mean, trust-sd: determine the initial trust distributions.
+- min-monitor, max-monitor: determine how conscientiousness maps onto monitoring probability.
+- base-alpha, alpha-range: determine the base trust update rate and the extent to which openness increases that rate.
+- ai-negative-penalty: determines how much more strongly negative evidence affects trust in AI agents.
+
+Recommended outputs to watch include:
+
+- average human-to-AI trust
+- average human-to-human trust
+- average AI-to-human trust
+- team success rate
+- team monitoring events
 
 ## THINGS TO NOTICE
 
-(suggested things for the user to notice while running the model)
+Notice whether human trust in AI remains below human trust in human teammates or begins to converge over time.
+
+Notice how AI efficiency and ability jointly shape trust development. More efficient agents produce more observable output, while lower ability increases failures.
+
+Notice that lack of completed work in the last 3 ticks counts as poor observed performance. This means low visible productivity can reduce trust.
+
+Notice whether trust dynamics are asymmetric. Human trust in AI may behave differently from AI trust in humans.
 
 ## THINGS TO TRY
 
-(suggested things for the user to try to do (move sliders, switches, etc.) with the model)
+Raise human-ai-trust-mean. Does higher initial trust help trust in AI grow faster?
+
+Raise ai-negative-penalty. How strongly must AI mistakes be penalized before trust in AI stops converging with trust in humans?
+
+Raise ai-efficiency-mean while keeping ai-ability-mean lower. Can high efficiency offset lower ability in trust development?
+
+Vary openness. Do more open agents update trust faster?
+
+Vary conscientiousness. Does more monitoring improve trust calibration?
 
 ## EXTENDING THE MODEL
 
-(suggested things to add or change in the Code tab to make the model more complicated, detailed, accurate, etc.)
+This version uses pooled interdependence, so agents work independently. Future versions could include more interdependence between teammates.
+
+The model assumes monitoring provides accurate information about recent task outcomes. Future versions could include noisy or incomplete observation.
+
+Monitoring currently does not reduce work time. Future versions could make monitoring costly.
+
+The model focuses on cognitive trust based on observed performance. Future work could include affective trust, communication, delegation, or reliance
 
 ## NETLOGO FEATURES
 
-(interesting or unusual features of NetLogo that the model uses, particularly in the Code tab; or where workarounds were needed for missing features)
+This model uses directed links to represent one-way trust relationships. Trust from agent A to agent B can differ from trust from agent B to agent A.
 
-## RELATED MODELS
+Agents store rolling 3-tick histories of completed and successful tasks for use during monitoring.
 
-(models in the NetLogo Models Library and elsewhere which are of related interest)
 
 ## CREDITS AND REFERENCES
 
-(a reference to the model's URL on the web if it has one, as well as any other necessary credits, citations, and links)
+This model was developed by Emma Bales and Javon Davis at the University of Georgia. ChatGPT (OpenAI), including Pro/Thinking modes, was used to assist with translating pseudocode into NetLogo code, debugging, and drafting the initial version of the Info tab. All AI-assisted output was reviewed and revised by the authors, who take full responsibility for the final model.
 </info>
   <turtleShapes>
     <shape name="default" rotatable="true" editableColorIndex="0">
